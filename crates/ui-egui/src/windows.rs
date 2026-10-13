@@ -397,6 +397,13 @@ pub(crate) fn settle(app: &mut FigApp, ctx: &Context, files_before: usize) {
     ctx.request_repaint_of(viewport(owner));
 }
 
+/// Every window draws again (files the system handed over open in whichever draws first).
+pub(crate) fn repaint_all(app: &FigApp, ctx: &Context) {
+    for id in std::iter::once(0).chain(app.windows.list.iter().map(|w| w.id)) {
+        ctx.request_repaint_of(viewport(id));
+    }
+}
+
 /// Something every window shows changed (the preferences, the theme): the others draw again.
 pub(crate) fn repaint_others(app: &FigApp, ctx: &Context) {
     for id in std::iter::once(0).chain(app.windows.list.iter().map(|w| w.id)).filter(|id| *id != app.windows.current) {

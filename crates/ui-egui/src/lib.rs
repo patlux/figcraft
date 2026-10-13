@@ -113,6 +113,8 @@ mod live_text_tests;
 #[cfg(test)]
 mod online_tests;
 #[cfg(test)]
+mod open_requests_tests;
+#[cfg(test)]
 mod panel_reorder_tests;
 #[cfg(test)]
 mod panel_width_tests;
@@ -487,6 +489,12 @@ pub struct FigApp {
     pub control_queue: Vec<ControlRequest>,
     /// Input events from the control channel (`ui.input`) for the next frame's raw input.
     pub control_input: Vec<egui::Event>,
+    /// Files the system asked to open (macOS: a Finder double-click, Open With, a drop on the Dock
+    /// icon): the window that draws next opens them like File › Open ([`FigApp::request_open`]).
+    pub open_requests: Vec<String>,
+    /// The empty file the desktop app made because it started with nothing to open. Files the
+    /// system hands over replace it while it is untouched (no path, no changes).
+    pub startup_file: Option<u64>,
     /// Frames drawn and what asked for them (`ui.inspect`).
     pub frame_stats: frame_stats::FrameStats,
     /// The other windows (desktop app).
@@ -518,6 +526,8 @@ impl FigApp {
             panels_unsaved: false,
             control_queue: Vec::new(),
             control_input: Vec::new(),
+            open_requests: Vec::new(),
+            startup_file: None,
             frame_stats: frame_stats::FrameStats::default(),
             windows: windows::Windows::default(),
             window_requests: Vec::new(),
@@ -813,6 +823,44 @@ impl FigApp {
         }
     }
 
+    /// The system asks to open `paths` (macOS hands Finder's files over as an Apple event, not on
+    /// the command line). Whichever window draws next opens them, so every window is woken: one on
+    /// another Space draws nothing until it is shown again.
+    pub fn request_open(&mut self, ctx: &egui::Context, paths: impl IntoIterator<Item = String>) {
+        self.open_requests.extend(paths);
+        windows::repaint_all(self, ctx);
+    }
+
+    /// Open the files the system asked for, as File › Open does, in the window drawing now. A file
+    /// open already comes to the front instead (in its own window, see `windows::settle`); one that
+    /// fails shows why and the others still open. The untouched empty file the app started with
+    /// gives way to them.
+    fn open_requested(&mut self) {
+        if self.open_requests.is_empty() {
+            return;
+        }
+        let startup = self.startup_file.take();
+        let mut opened = None;
+        for p in std::mem::take(&mut self.open_requests) {
+            if self.run("file.open", json!({"path": p})).is_some() {
+                self.ui.home = false;
+                opened = self.session.ds().ok().map(|d| d.uid);
+            }
+        }
+        let Some(shown) = opened else {
+            // Nothing opened: the empty file still stands in for an empty start.
+            self.startup_file = startup;
+            return;
+        };
+        let untouched = |d: &figcraft_engine::DocState| startup == Some(d.uid) && d.path.is_none() && !d.is_dirty() && d.branch_of.is_none();
+        if let Some(i) = self.session.docs.iter().position(untouched) {
+            self.run("file.close", json!({"index": i}));
+            if let Some(i) = self.session.docs.iter().position(|d| d.uid == shown) {
+                self.session.active = i;
+            }
+        }
+    }
+
     pub fn import_dialog(&mut self, place: bool) {
         let exts: &[&str] = if place {
             &["png", "jpg", "jpeg", "webp", "gif", "tif", "tiff"]
@@ -963,6 +1011,7 @@ impl FigApp {
         let typing = std::mem::take(&mut self.field_focus) || a11y::field_focused(&ctx);
         // Control requests run first so their results reflect this frame.
         control::drain(self, &ctx);
+        self.open_requested();
         windows::requests(self, &ctx);
         // Before any widget: the navigation keys (F6, Tab, arrows, Escape) move the keyboard.
         a11y::begin(self, &ctx);

@@ -26,6 +26,19 @@ webbrowser = { workspace = true }
 image = { workspace = true }
 env_logger = { version = "0.11", default-features = false, features = ["auto-color", "humantime"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# Finder double-clicks, Open With, Dock drops and `open -a FigCraft file.figcraft` arrive as a
+# kAEOpenDocuments Apple event, which winit 0.30 doesn't handle (AppKit answered "FigCraft cannot
+# open files in the “FigCraft Document” format"). This small audited crate (WordCraft, PhotoCraft
+# and PdfCraft use it too) registers the handler behind a safe API: Objective-C interop needs
+# unsafe, which our workspace forbids. Pinned exactly: review the diff before bumping.
+fmv-macos-events = "=0.1.0"
+# The quit event is answered with NSApplication's `terminate:` (a safe call in these bindings), from
+# the main queue. Already in the build through eframe, winit, rfd and arboard, at these versions.
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSResponder"] }
+dispatch2 = { version = "0.3", default-features = false, features = ["std"] }
+
 # The system's reduce-motion setting (UISettings.AnimationsEnabled), interface language
 # (GlobalizationPreferences.Languages) and controllers for prototypes (Gaming.Input.Gamepad).
 [target.'cfg(windows)'.dependencies]
