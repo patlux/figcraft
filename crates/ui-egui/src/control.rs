@@ -70,6 +70,42 @@ fn pending(ctx: &Context) -> std::sync::Arc<std::sync::Mutex<Vec<PendingShot>>> 
     ctx.data_mut(|d| d.get_temp_mut_or_insert_with(egui::Id::new("pending_shots"), || std::sync::Arc::new(std::sync::Mutex::new(Vec::new()))).clone())
 }
 
+/// Whether window `id` draws no frames now: minimized, or occluded (behind other windows, or on
+/// another Space, where macOS draws nothing). eframe then runs no ui pass for it, only the main
+/// window's `App::logic`.
+pub fn hidden(ctx: &Context, id: u64) -> bool {
+    ctx.input(|i| i.raw.viewports.get(&crate::windows::viewport(id)).and_then(egui::ViewportInfo::visible)) == Some(false)
+}
+
+/// Answer the queued requests for windows that draw no frames now ([`hidden`]) without a frame,
+/// with the window's state swapped in: a window on another Space or behind others still answers.
+/// The desktop app calls this from the main window's `App::logic`, which eframe runs even while
+/// that window draws nothing. Requests for windows that draw stay queued for their frame
+/// ([`drain`]); a window screenshot needs a frame and is refused at once.
+pub fn serve_hidden(app: &mut FigApp, ctx: &Context) {
+    let reqs = std::mem::take(&mut app.control_queue);
+    for r in reqs {
+        if r.is_cancelled() {
+            continue;
+        }
+        let target = r.params.get("window").and_then(Value::as_u64).unwrap_or(app.windows.focused);
+        if app.windows.exists(target) && !hidden(ctx, target) {
+            app.control_queue.push(r);
+            continue;
+        }
+        let res = if !app.windows.exists(target) {
+            Err(format!("no window {target}"))
+        } else if r.method == "ui.screenshot" {
+            Err(format!(
+                "window {target} draws nothing now (minimized, behind other windows or on another Space): a window screenshot needs it visible"
+            ))
+        } else {
+            crate::windows::as_window(app, target, |app| handle(app, ctx, &r.method, &r.params)).unwrap_or_else(|| Err(format!("no window {target}")))
+        };
+        let _ = r.reply.send(ControlReply { id: r.id, result: res });
+    }
+}
+
 pub fn drain(app: &mut FigApp, ctx: &Context) {
     let now = ctx.input(|i| i.time);
     let list = pending(ctx);
@@ -98,11 +134,13 @@ pub fn drain(app: &mut FigApp, ctx: &Context) {
         if r.is_cancelled() {
             continue;
         }
-        // Requests for another window wait for its frame.
+        // Requests for another window wait for its frame; one that draws nothing now is answered
+        // from the main window's logic ([`serve_hidden`]).
         let target = r.params.get("window").and_then(Value::as_u64).unwrap_or(app.windows.focused);
         if target != app.windows.current {
             if app.windows.exists(target) {
-                ctx.request_repaint_of(crate::windows::viewport(target));
+                let wake = if hidden(ctx, target) { egui::ViewportId::ROOT } else { crate::windows::viewport(target) };
+                ctx.request_repaint_of(wake);
                 app.control_queue.push(r);
             } else {
                 let _ = r.reply.send(ControlReply { id: r.id, result: Err(format!("no window {target}")) });
