@@ -136,3 +136,29 @@ fn windows_that_draw_nothing_still_answer_control_requests() {
     frame(&ctx, &mut app, false);
     assert!(later.try_recv().is_ok(), "answered in the frame");
 }
+
+#[test]
+fn a_request_for_a_window_on_screen_wakes_it_while_the_main_window_is_hidden() {
+    let mut s = Session::empty();
+    for n in ["A", "B"] {
+        s.execute("file.new", &json!({"name": n})).unwrap();
+    }
+    let ctx = egui::Context::default();
+    ctx.set_embed_viewports(false);
+    let mut app = FigApp::new(s, Box::new(NoServices));
+    frame(&ctx, &mut app, false);
+    let w = crate::control::handle(&mut app, &ctx, "window.new", &json!({"index": 0})).unwrap()["window"].as_u64().unwrap();
+    frame(&ctx, &mut app, false);
+    let other = crate::windows::viewport(w);
+    // Which windows are asked to draw from now on (an idle window draws no frames until asked).
+    let woken = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let log = woken.clone();
+    ctx.set_request_repaint_callback(move |info| log.lock().unwrap().push(info.viewport_id));
+
+    // Only the main window's logic runs while it is hidden: the request for the other window,
+    // which is on screen, waits for that window's frame, and that window is asked to draw it.
+    let ui = request(&mut app, "window.list", json!({"window": w}));
+    logic_only(&ctx, &mut app, &[ViewportId::ROOT]);
+    assert!(ui.try_recv().is_err(), "answered in the other window's frame");
+    assert!(woken.lock().unwrap().contains(&other), "the other window is asked to draw: {:?}", woken.lock().unwrap());
+}
