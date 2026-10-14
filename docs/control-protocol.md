@@ -43,7 +43,10 @@ an optional `window` (an id from `window.list`; `0` is the main window) and then
 window, with its tabs, panels and canvas: `engine.execute` acts on the file it shows,
 `ui.screenshot` captures it, `ui.input` reaches it. Without `window`, a request goes to the window
 last in front (the one the user clicked last, or the last `window.new` / `window.focus`). An
-unknown id is an error.
+unknown id is an error. A window that draws no frames (minimized, or occluded: behind other
+windows or on another Space) still answers, without a frame, from the main window's logic, which
+runs while every window is hidden; only `ui.screenshot` needs the window visible and is refused at
+once, and `ui.input` events wait for its next frame.
 
 ## Methods
 
