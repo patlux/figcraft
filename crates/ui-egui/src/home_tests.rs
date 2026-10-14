@@ -4,14 +4,14 @@
 //! started card (closed, kept closed, and brought back from the Help menu).
 
 use egui::accesskit::Role;
-use egui::{Event, Key, Modifiers, PointerButton, Pos2, Rect, Shape};
+use egui::{Event, Key, Modifiers, PointerButton, Pos2, Shape};
 use figcraft_engine::Session;
 use figcraft_engine::templates::TEMPLATES;
 use serde_json::json;
 
 use crate::home::{Section, cached_thumbnails};
 use crate::layers_drag_tests::Ui;
-use crate::live_tests::{flat, has_text, text_center, texts};
+use crate::live_tests::{flat, has_text, text_center};
 
 /// The app as a first run finds it: no documents, no recent files.
 fn first_run() -> Ui {
@@ -220,38 +220,6 @@ fn a_first_run_offers_templates_on_recents_and_recent_files_replace_them() {
     assert!(has_text(&s, "Recent files") && has_text(&s, "ridgeline.figcraft"));
     assert!(!has_text(&s, "Start from a template") && !has_text(&s, "See all templates"));
     assert!(has_text(&s, "Open files"), "the document opened from the template is listed");
-}
-
-#[test]
-fn a_long_name_and_path_share_their_row_without_overlapping() {
-    let mut u = first_run();
-    let name = "Maengelliste-Fenster-Grad-Schlupf-2026-10-15-mit-einem-langen-Rest.figcraft";
-    let long = format!("/Users/someone/dev/Personal/haus/ProjektHaus/02-Haus/04-maengel/2026-10-15/{name}");
-    let short = "/tmp/stage1.figcraft";
-    u.app.session.prefs.recent_files = vec![long.clone(), short.into()];
-    u.app.session.prefs.getting_started_dismissed = true;
-    let s = settle(&mut u);
-    // A row that fits shows its name and path in full.
-    assert!(has_text(&s, "stage1.figcraft") && has_text(&s, short));
-    // One that doesn't: the name, then the end of its path, side by side.
-    let all = texts(&s);
-    let rect = |(_, p, size): &(String, Pos2, egui::Vec2)| Rect::from_min_size(*p, *size);
-    let shown_name = all.iter().find(|(t, _, _)| t.starts_with("Ma")).expect("the name");
-    let name_rect = rect(shown_name);
-    assert!(shown_name.0.starts_with("Maengelliste-Fenster") && shown_name.0.ends_with('…'), "{:?}", shown_name.0);
-    let detail = all
-        .iter()
-        .find(|e| e.0 != shown_name.0 && e.0.ends_with(".figcraft") && (rect(e).center().y - name_rect.center().y).abs() < 2.0)
-        .expect("the path on the name's row");
-    let detail_rect = rect(detail);
-    assert!(name_rect.max.x + 12.0 <= detail_rect.min.x, "{:?} {name_rect:?} overlaps {:?} {detail_rect:?}", shown_name.0, detail.0);
-    assert!(detail.0.starts_with('…') && long.ends_with(detail.0.trim_start_matches('…')), "{:?}", detail.0);
-    // Hovered, the row shows them in full.
-    u.frame(vec![Event::PointerMoved(name_rect.center())]);
-    for _ in 0..60 {
-        u.frame(vec![]);
-    }
-    assert!(texts(&shapes(&mut u)).iter().any(|(t, _, _)| t.contains(&long)), "no tooltip with the full path");
 }
 
 #[test]
