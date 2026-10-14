@@ -9,8 +9,6 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 #![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
 
-#[cfg(target_os = "macos")]
-mod apple_events;
 mod args;
 mod control_server;
 mod gamepad;
@@ -56,9 +54,6 @@ impl eframe::App for App {
             let mut q = self.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             fig.control_queue.extend(q.drain(..));
             drop(q);
-            // Files Finder handed over while the app was busy.
-            #[cfg(target_os = "macos")]
-            apple_events::deliver(fig, ctx);
             // Closing the window asks about unsaved changes (and keeps the app running while other
             // windows are open).
             figcraft_ui_egui::windows::on_close_request(fig, ctx);
@@ -156,16 +151,12 @@ fn main() -> eframe::Result {
     session.live.links = figcraft_collab_net::links::system();
     session.invite_links_startup();
     // A first run (no settings kept yet, nothing to open) starts on the home screen, with its
-    // tips and templates; later runs start in a new file. Files macOS hands over at launch replace
-    // that file (Finder passes them as an Apple event, after this, not on the command line).
+    // tips and templates; later runs start in a new file.
     let first_run = svc.prefs.is_none() && args.join.is_none();
-    let mut startup_file = None;
     if session.docs.is_empty() && !first_run {
         let _ = session.execute("file.new", &json!({}));
-        startup_file = session.ds().ok().map(|d| d.uid);
     }
     let mut fig = FigApp::new(session, Box::new(svc));
-    fig.startup_file = startup_file;
     fig.ui.home = false;
     fig.note_recovered(recovered.copies);
     if let Some(link) = &args.join {
@@ -195,19 +186,5 @@ fn main() -> eframe::Result {
     }
     let options = eframe::NativeOptions { viewport, renderer: eframe::Renderer::Wgpu, ..Default::default() };
     figcraft_ui_egui::windows::install(fig);
-    // Finder's open-document and quit Apple events, including the one that launched the app; the
-    // handlers stay registered until the event loop returns.
-    #[cfg(target_os = "macos")]
-    let _apple_events = apple_events::AppleEvents::install();
-    eframe::run_native(
-        "FigCraft",
-        options,
-        Box::new(move |cc| {
-            #[cfg(target_os = "macos")]
-            apple_events::connect(&cc.egui_ctx);
-            #[cfg(not(target_os = "macos"))]
-            let _ = cc;
-            Ok(Box::new(App { queue, ctx_slot, title: String::new(), recovery }))
-        }),
-    )
+    eframe::run_native("FigCraft", options, Box::new(move |_cc| Ok(Box::new(App { queue, ctx_slot, title: String::new(), recovery }))))
 }
