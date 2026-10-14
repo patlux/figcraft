@@ -227,14 +227,20 @@ fn control_requests_and_screenshots_wake_an_idle_ui() {
     h.settle();
     // A request is answered in the next frame, which asks for one more to show its effect.
     let (tx, rx) = std::sync::mpsc::channel();
-    h.app.control_queue.push(ControlRequest { id: json!(1), method: "ui.inspect".into(), params: json!({}), reply: tx.clone() });
+    h.app.control_queue.push(ControlRequest {
+        id: json!(1),
+        method: "ui.inspect".into(),
+        params: json!({}),
+        reply: tx.clone(),
+        cancelled: Default::default(),
+    });
     assert_eq!(h.frame(vec![]), Duration::ZERO);
     assert!(rx.try_recv().unwrap().result.is_ok());
     h.assert_idle("after a control request");
     // A screenshot keeps frames coming until the window delivers it, then the UI rests again.
     let path = std::env::temp_dir().join(format!("figcraft-idle-shot-{}.png", std::process::id()));
     let params = json!({"path": path.to_string_lossy()});
-    h.app.control_queue.push(ControlRequest { id: json!(2), method: "ui.screenshot".into(), params, reply: tx });
+    h.app.control_queue.push(ControlRequest { id: json!(2), method: "ui.screenshot".into(), params, reply: tx, cancelled: Default::default() });
     for _ in 0..5 {
         assert_eq!(h.frame(vec![]), Duration::ZERO, "waiting for the screenshot");
     }

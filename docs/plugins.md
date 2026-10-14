@@ -26,6 +26,27 @@ permissions its manifest asks for, and nothing more.
   updated when a newer version is published (see [Plugin directories](#plugin-directories)). No
   third-party service is involved.
 
+## Logging limits
+
+Logs have separate limits from the plugin's WebAssembly memory and general message limits. By
+default, each run or panel/widget callback may log at most:
+
+| Limit | Default |
+|---|---|
+| UTF-8 bytes per log line | 8 KiB |
+| Total UTF-8 log bytes | 1 MiB |
+| Log lines (including empty lines) | 1,000 |
+
+The sandbox checks these limits before copying a line from plugin memory or forwarding it to the
+application logger. Accepted lines are kept in the run's `logs` result and forwarded once; the
+same byte and count budgets apply to both. The byte budget counts the strings' contents, excluding
+their container overhead. The general message limit also applies to log lines.
+
+Exceeding a log limit fails the run with a limit error and rolls back its document edits, selection
+and page, just like other sandbox failures. Earlier accepted lines may already have reached the
+application log. Each callback starts with fresh budgets. Keep log messages short and summarize
+large data instead of logging it in full.
+
 ## Using plugins
 
 - **Plugins ▸ Development ▸ Import plugin from manifest…** picks a `figcraft-plugin.json`. The
@@ -230,11 +251,16 @@ it can handle):
 
 Limits per run, and again per panel callback: 1,000,000,000 fuel (about a second or two of plain
 WebAssembly in a debug build, far less in a release build), 64 MB of memory, 100,000 host calls
-(each also costs 10,000 fuel), 16 MB per string either way, 1,000 log lines, and modules up to
+(each also costs 10,000 fuel, including `reply_len`, `reply_read` and `set_output`), 16 MB per string either way, 1,000 log lines, and modules up to
 16 MB. A panel spec is at most 64 KB with 64 controls; settings are at most 64 KB per plugin (keys
 and JSON values), keys 1–128 characters. A widget callback gets the same limits; its description is
 at most 4 MB with 256 layers nested 16 deep, its state at most 16 KB (keys 1–128 characters), and
 its images 1 MB each, 2 MB together and 4096 pixels on a side.
+
+Copying a byte across the guest-memory boundary costs one additional fuel, reserved before the
+allocation or copy. This also applies when the configured per-call overhead is zero. A reply
+read is charged for the bytes actually returned, not the requested buffer size. `calls` counts
+every ABI import, including calls which only query the reply length.
 
 ## ABI (version 3)
 

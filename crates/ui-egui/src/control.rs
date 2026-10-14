@@ -15,7 +15,7 @@
 //!   for the frames that follow (all false: released); `gamepad` presses a controller button in the
 //!   prototype playing (presenter or preview pane)
 //! - `ui.menu.invoke {id}` — a menu item exactly like clicking it (may open a dialog)
-//! - `ui.set {rightTab?, leftTab?, theme?, home?, homeSection?, palette?, focusRegion?, preview?, presentScroll?, …}`
+//! - `ui.set {rightTab?, leftTab?, theme?, home?, homeSection?, homeRecentsView?, homeRecentsSort?, homeRecentsOrder?, palette?, focusRegion?, preview?, presentScroll?, …}`
 //! - `ui.screenshot {path}` — PNG of the window (needs a visible window)
 //! - `ui.render {path, scale?, ids?}` — PNG of the document (no UI chrome; works without a window)
 //! - `window.new {path?, index?}` → `{window}` / `window.list {}` / `window.focus {id}` — several
@@ -42,6 +42,14 @@ pub struct ControlRequest {
     pub method: String,
     pub params: Value,
     pub reply: std::sync::mpsc::Sender<ControlReply>,
+    /// The transport stops waiting after its timeout; discard requests still queued then.
+    pub cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl ControlRequest {
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(std::sync::atomic::Ordering::Relaxed)
+    }
 }
 
 /// Pending screenshot replies.
@@ -87,6 +95,9 @@ pub fn drain(app: &mut FigApp, ctx: &Context) {
     }
     let reqs = std::mem::take(&mut app.control_queue);
     for r in reqs {
+        if r.is_cancelled() {
+            continue;
+        }
         // Requests for another window wait for its frame.
         let target = r.params.get("window").and_then(Value::as_u64).unwrap_or(app.windows.focused);
         if target != app.windows.current {
@@ -346,6 +357,16 @@ pub fn handle(app: &mut FigApp, ctx: &Context, method: &str, p: &Value) -> Resul
             }
             if let Some(section) = p.get("homeSection").and_then(Value::as_str).and_then(crate::home::Section::parse) {
                 app.ui.home_view.section = section;
+            }
+            if let Some(view) = p.get("homeRecentsView").and_then(Value::as_str).and_then(crate::home_recents::View::parse) {
+                view.store(&mut app.session.prefs);
+            }
+            if let Some(key) = p.get("homeRecentsSort").and_then(Value::as_str).and_then(crate::home_recents::SortKey::parse) {
+                crate::home_recents::Sort::by(key).store(&mut app.session.prefs);
+            }
+            if let Some(order) = p.get("homeRecentsOrder").and_then(Value::as_str).filter(|o| matches!(*o, "asc" | "desc")) {
+                let sort = crate::home_recents::Sort::of(&app.session.prefs);
+                crate::home_recents::Sort { descending: order == "desc", ..sort }.store(&mut app.session.prefs);
             }
             if let Some(h) = p.get("palette").and_then(Value::as_bool) {
                 app.ui.palette = if h { Some(String::new()) } else { None };

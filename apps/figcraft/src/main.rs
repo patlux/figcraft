@@ -12,11 +12,14 @@
 mod args;
 mod control_server;
 mod gamepad;
+mod graphics;
 mod recovery;
 mod services;
 
 #[cfg(test)]
 mod args_tests;
+#[cfg(test)]
+mod graphics_tests;
 #[cfg(test)]
 mod recovery_online_tests;
 #[cfg(test)]
@@ -51,9 +54,7 @@ impl eframe::App for App {
             }
         }
         let title = with_app(|fig| {
-            let mut q = self.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            fig.control_queue.extend(q.drain(..));
-            drop(q);
+            control_server::drain_queue(&self.queue, &mut fig.control_queue);
             // Closing the window asks about unsaved changes (and keeps the app running while other
             // windows are open).
             figcraft_ui_egui::windows::on_close_request(fig, ctx);
@@ -184,7 +185,8 @@ fn main() -> eframe::Result {
     if let Some(icon) = icon {
         viewport = viewport.with_icon(icon);
     }
-    let options = eframe::NativeOptions { viewport, renderer: eframe::Renderer::Wgpu, ..Default::default() };
+    let mut options = eframe::NativeOptions { viewport, renderer: eframe::Renderer::Wgpu, ..Default::default() };
+    graphics::configure(&mut options.wgpu_options);
     figcraft_ui_egui::windows::install(fig);
     eframe::run_native("FigCraft", options, Box::new(move |_cc| Ok(Box::new(App { queue, ctx_slot, title: String::new(), recovery }))))
 }

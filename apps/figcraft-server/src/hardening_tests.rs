@@ -235,6 +235,21 @@ fn a_file_cant_grow_past_its_cap_through_batches() {
     // Its snapshot holds the document and the recent batches kept for reconnecting clients (at
     // most a quarter of the cap), and the last batch let in may finish what the cap allows.
     assert!(on_disk <= max + max / 4 + 210_000, "{on_disk} bytes on disk");
+    drop(raw);
+    server.stop();
+    // Everything confirmed opens again with the same settings, after compacting on the way out.
+    let kept = client.document().nodes().count();
+    let mut server = crate::start(&cfg).unwrap();
+    let mut raw = Raw::connect(server.addr());
+    raw.send(&Client::hello(&file.id, &edit.token, "Grower", ""));
+    let welcome = loop {
+        match raw.next() {
+            w @ ServerMsg::Welcome { .. } => break w,
+            ServerMsg::Refused { reason } => panic!("the file doesn't open again: {reason}"),
+            _ => {}
+        }
+    };
+    assert_eq!(Client::join(welcome).unwrap().document().nodes().count(), kept);
     server.stop();
 }
 

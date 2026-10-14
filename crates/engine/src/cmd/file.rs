@@ -37,7 +37,7 @@ pub fn specs() -> Vec<CommandSpec> {
         spec!(
             "file.openRecent",
             "Open recent",
-            "{path? | index? (into the list), clear? (forget them all)}  opens a recent file; a file that no longer exists is dropped from the list. Returns the list, newest first: {files: [{path, name, exists}]} (opening returns what `file.open` does)",
+            "{path? | index? (into the list), clear? (forget them all), remove? (a path: forget that one)}  opens a recent file; a file that no longer exists is dropped from the list. Returns the list, newest first: {files: [{path, name, exists}]} (opening returns what `file.open` does)",
             false,
             open_recent
         ),
@@ -112,7 +112,7 @@ pub fn specs() -> Vec<CommandSpec> {
             s.active = s.docs.len() - 1;
             Ok(json!({"index": s.active}))
         }),
-        spec!("file.revert", "Revert to saved", "{}", false, |s, _| {
+        spec!("file.revert", "Revert to saved", "{}  leave the live session first, if any", false, |s, _| {
             let path = s.ds()?.path.clone().ok_or_else(|| EngineError::Disabled("file.revert".into(), "the file was never saved".into()))?;
             let (loaded, _) = load_path(&path, None)?;
             let i = s.active;
@@ -625,6 +625,9 @@ fn open_recent(s: &mut Session, p: &Value) -> Result<Value> {
     if p.get("clear").and_then(Value::as_bool) == Some(true) {
         s.prefs.recent_files.clear();
     }
+    if let Some(gone) = string(p, "remove") {
+        s.prefs.recent_files.retain(|r| *r != gone);
+    }
     let path = match (string(p, "path"), num(p, "index")) {
         (Some(path), _) => Some(path),
         (None, Some(i)) => Some(s.prefs.recent_files.get(i.max(0.0) as usize).cloned().ok_or_else(|| bad(CMD, "no such recent file"))?),
@@ -662,6 +665,13 @@ fn open(s: &mut Session, p: &Value) -> Result<Value> {
     remember(s, &path);
     let native = !rest && matches!(ext(&path).as_str(), "figcraft" | "json");
     let warnings = rest || ext(&path) == "svg";
+    // A native file that lost something (a damaged image, say): the app says so, not only the result.
+    if native && !loaded.issues.is_empty() {
+        s.message = Some(match loaded.issues.as_slice() {
+            [one] => format!("{}: {one}", file_stem(&path)),
+            more => format!("{}: {} problems were repaired or left out while opening it, e.g. {}", file_stem(&path), more.len(), more[0]),
+        });
+    }
     s.docs.push(DocState::new(loaded.doc, native.then_some(path)).with_versions(loaded.versions).with_branches(loaded.branches));
     s.active = s.docs.len() - 1;
     let mut out = json!({"index": s.active});
@@ -782,8 +792,11 @@ pub fn export_bytes_with(doc: &Document, ids: &[NodeId], setting: &ExportSetting
     if ids.is_empty() {
         return Err(nothing());
     }
-    let area = export_area(doc, ids, setting).ok_or_else(nothing)?;
     let drawn = drawn_layers(doc, ids, setting);
+    if matches!(setting.format, ExportFormat::Svg | ExportFormat::Pdf) {
+        figcraft_render::check_export_depth(doc, &drawn).map_err(|e| EngineError::Other(e.to_string()))?;
+    }
+    let area = export_area(doc, ids, setting).ok_or_else(nothing)?;
     // The layers' own area unless an option or a slice says otherwise.
     let own_area = setting.contents_only
         && !setting.include_bounding_box
@@ -797,7 +810,10 @@ pub fn export_bytes_with(doc: &Document, ids: &[NodeId], setting: &ExportSetting
                 simplify_stroke: setting.svg_simplify_stroke,
                 bounds: Some(area),
             };
-            figcraft_svg::export_svg(&doc.in_srgb(), &drawn, &opts).map(String::into_bytes).ok_or_else(nothing)
+            figcraft_svg::try_export_svg(&doc.in_srgb(), &drawn, &opts).map(String::into_bytes).map_err(|e| match e {
+                figcraft_svg::SvgError::Empty => nothing(),
+                other => EngineError::Other(other.to_string()),
+            })
         }
         ExportFormat::Pdf => {
             let doc = &*doc.in_srgb();
@@ -877,6 +893,11 @@ pub fn fig_bytes(doc: &Document) -> Result<(Vec<u8>, Vec<String>)> {
 
 /// The scale that gives `ids` (their export area together) `setting`'s export size.
 pub fn export_scale(doc: &Document, ids: &[NodeId], setting: &ExportSetting) -> f64 {
+    // Size-based exports ask for bounds before encoding. Let encoding report the depth error
+    // without entering a recursive bounds walk here; SVG/PDF do not use this raster scale.
+    if matches!(setting.format, ExportFormat::Svg | ExportFormat::Pdf) && figcraft_render::check_export_depth(doc, ids).is_err() {
+        return 1.0;
+    }
     export_area(doc, ids, setting).map_or(1.0, |b| setting.size.scale_for(b.width(), b.height()))
 }
 

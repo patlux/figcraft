@@ -18,7 +18,7 @@ use crate::PdfOptions;
 use crate::print::Ink;
 
 /// Deepest node nesting drawn (the renderer's limit).
-pub(crate) const MAX_DEPTH: usize = 256;
+pub(crate) const MAX_DEPTH: usize = figcraft_render::MAX_EXPORT_DEPTH;
 /// Largest side of any raster made for the PDF, in pixels.
 pub(crate) const MAX_RASTER_SIDE: f64 = 4096.0;
 

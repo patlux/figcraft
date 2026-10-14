@@ -27,7 +27,15 @@ use figcraft_color::{Color, GradientKind, Paint, PaintKind};
 use figcraft_doc::{Document, EffectKind, Node, NodeId, NodeKind, SPREAD_MITER_LIMIT, Shadow};
 use figcraft_geom::{Affine, BezPath, Rect};
 use figcraft_render::shadow::Outline;
-use figcraft_render::{Alone, Pixmap, View, backdrop};
+use figcraft_render::{Alone, ExportDepthError, MAX_EXPORT_DEPTH, Pixmap, View, backdrop, check_export_depth};
+
+#[derive(Debug, thiserror::Error, PartialEq)]
+pub enum SvgError {
+    #[error("nothing to export")]
+    Empty,
+    #[error(transparent)]
+    Depth(#[from] ExportDepthError),
+}
 
 /// Device pixels per page unit of embedded renders (blurs, glass, texture).
 const RASTER_SCALE: f64 = 2.0;
@@ -362,7 +370,7 @@ impl W<'_> {
     }
 
     fn node(&mut self, id: NodeId, xf: Affine, depth: usize) {
-        if depth > 256 {
+        if depth > MAX_EXPORT_DEPTH {
             return;
         }
         let Some(n) = self.doc.node(id) else { return };
@@ -920,10 +928,18 @@ fn sniff_mime(b: &[u8]) -> &'static str {
 }
 
 /// Export `ids` (in z-order) as one SVG document covering their export bounds.
+/// Returns `None` for an empty or over-depth export. Use [`try_export_svg`] for the reason.
 pub fn export_svg(doc: &Document, ids: &[NodeId], opts: &SvgOptions) -> Option<String> {
+    try_export_svg(doc, ids, opts).ok()
+}
+
+/// Like [`export_svg`], with an actionable error when the visible subtree is too deep. No partial
+/// SVG is returned; the depth limit is relative to each exported root, not the document's page.
+pub fn try_export_svg(doc: &Document, ids: &[NodeId], opts: &SvgOptions) -> Result<String, SvgError> {
+    check_export_depth(doc, ids)?;
     let bounds: Rect = match opts.bounds {
         Some(b) if [b.x0, b.y0, b.x1, b.y1].iter().all(|v| v.is_finite()) => b,
-        _ => ids.iter().filter_map(|i| figcraft_render::export_bounds(doc, *i)).reduce(|a, b| a.union(b))?,
+        _ => ids.iter().filter_map(|i| figcraft_render::export_bounds(doc, *i)).reduce(|a, b| a.union(b)).ok_or(SvgError::Empty)?,
     };
     let origin = Affine::translate((-bounds.x0, -bounds.y0));
     let mut w = W {
@@ -944,7 +960,7 @@ pub fn export_svg(doc: &Document, ids: &[NodeId], opts: &SvgOptions) -> Option<S
     }
     let (bw, bh) = (bounds.width().max(0.0), bounds.height().max(0.0));
     let defs = if w.defs.is_empty() { String::new() } else { format!("<defs>{}</defs>", w.defs) };
-    Some(format!(
+    Ok(format!(
         "<svg width=\"{}\" height=\"{}\" viewBox=\"0 0 {} {}\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\">{}{}</svg>\n",
         num(bw),
         num(bh),
@@ -955,6 +971,8 @@ pub fn export_svg(doc: &Document, ids: &[NodeId], opts: &SvgOptions) -> Option<S
     ))
 }
 
+#[cfg(test)]
+mod depth_tests;
 #[cfg(test)]
 mod effects_tests;
 #[cfg(test)]

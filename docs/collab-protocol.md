@@ -632,7 +632,10 @@ resuming with its offline edits, and leaving the session going back to snapshot 
   `Client::receive` with the engine's recompute hook, and the resulting document is installed with
   `Session::apply_remote`, which keeps your selection, page and view and never adds an undo step.
   Batches that arrive during a gesture wait for it to end. New layers take ids in the client's
-  space (`client_id << 32 | counter`). Closing the session's document leaves the session.
+  space (`client_id << 32 | counter`). Closing the session's document leaves the session. Revert to
+  saved (`file.revert`) is refused while the document belongs to a session, including publishing,
+  reconnecting and hosting before the welcome. Refusal keeps the document, previews and session
+  unchanged; leave the session first to revert the local file.
 - Each applied batch wakes the window (the inbox calls `request_repaint`); nothing runs while
   nobody edits or moves.
 

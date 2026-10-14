@@ -293,16 +293,26 @@ pub fn apply(cmd: &str, doc: &mut Document, id: NodeId, props: &Map<String, Valu
             }
             "width" | "height" | "w" | "h" => {
                 let val = f64_of(v).ok_or_else(|| bad(cmd, format!("`{k}` must be a number")))?.max(0.0);
-                let (ow, oh, keep) = {
+                let is_w = k.starts_with('w');
+                // With the proportions locked (the Layout panel's link) and only one side set, the
+                // other side follows the node's ratio; both sides in one `node.set` stay as typed.
+                let (nw, nh) = {
                     let n = doc.get(id)?;
-                    (n.width, n.height, n.constrain_proportions && !props.contains_key("width") || !props.contains_key("height"))
+                    let (ow, oh) = (n.width, n.height);
+                    let (other, other_short) = if is_w { ("height", "h") } else { ("width", "w") };
+                    let linked = n.constrain_proportions && !props.contains_key(other) && !props.contains_key(other_short) && ow > 1e-9 && oh > 1e-9;
+                    let derived = if is_w { oh * val / ow } else { ow * val / oh };
+                    match (is_w, linked && derived.is_finite()) {
+                        (true, true) => (val, derived),
+                        (false, true) => (derived, val),
+                        (true, false) => (val, oh),
+                        (false, false) => (ow, val),
+                    }
                 };
-                let _ = keep;
-                let (nw, nh) = if k.starts_with('w') { (val, oh) } else { (ow, val) };
                 resize_node(doc, id, nw, nh)?;
                 // Explicit size makes text fixed in that dimension.
                 if let Some(t) = doc.get_mut(id)?.kind.text_mut() {
-                    t.auto_resize = if k.starts_with('w') {
+                    t.auto_resize = if is_w {
                         if t.auto_resize == TextAutoResize::WidthAndHeight { TextAutoResize::Height } else { t.auto_resize }
                     } else {
                         TextAutoResize::None
@@ -310,7 +320,7 @@ pub fn apply(cmd: &str, doc: &mut Document, id: NodeId, props: &Map<String, Valu
                 }
                 // Explicit width/height makes hugging/filling fixed (like typing into W/H).
                 let n = doc.get_mut(id)?;
-                if k.starts_with('w') {
+                if is_w {
                     n.child_layout.sizing_h = Sizing::Fixed;
                 } else {
                     n.child_layout.sizing_v = Sizing::Fixed;

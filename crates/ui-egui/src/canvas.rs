@@ -28,6 +28,8 @@ pub struct CanvasState {
     zoom_tool: Option<bool>,
     zoom_drag: Option<Pos2>,
     pub last_pointer: Option<Point>,
+    /// The real pointer was over the canvas last frame (leaving it clears what it hovered).
+    hovering: bool,
     /// What the pointer shows over the canvas (`ui.inspect`); none while it is elsewhere or
     /// something on the canvas with a cursor of its own has it (a ruler guide, a gradient handle).
     pub cursor: Option<crate::cursors::Shown>,
@@ -52,6 +54,7 @@ impl Default for CanvasState {
             zoom_tool: None,
             zoom_drag: None,
             last_pointer: None,
+            hovering: false,
             preedit: None,
             pressure: None,
         }
@@ -368,6 +371,10 @@ fn input(app: &mut FigApp, ui: &mut Ui, resp: &egui::Response) -> bool {
         }
     }
     let Some(pos) = hover_pos.filter(|p| app.canvas.rect.contains(*p)) else {
+        // Leaving the canvas: nothing is hovered there any more.
+        if !app.canvas.dragging && std::mem::take(&mut app.canvas.hovering) {
+            app.session.vector_pointer_left();
+        }
         return true;
     };
     // A press on the canvas gives the keyboard back to it (arrows nudge again).
@@ -454,8 +461,13 @@ fn input(app: &mut FigApp, ui: &mut Ui, resp: &egui::Response) -> bool {
     } else if app.canvas.dragging && primary_down {
         Some(PointerKind::Move)
     } else if resp.hovered() {
+        app.canvas.hovering = true;
         Some(PointerKind::Hover)
     } else {
+        // Something over the canvas took the pointer.
+        if std::mem::take(&mut app.canvas.hovering) {
+            app.session.vector_pointer_left();
+        }
         None
     };
     // Pen pressure comes with touch events (a pen on Windows, a stylus in a browser); a mouse,
@@ -1117,6 +1129,9 @@ fn vector_overlay(
         let polys: Vec<Vec<Pos2>> = ov.face.iter().map(|poly| poly.iter().map(sp).collect()).collect();
         hatched(painter, &polys, ACCENT);
     }
+    if active {
+        region_hatch(app, painter);
+    }
     let hover_seg = match hover {
         Some(VHit::Segment { seg, .. }) => Some(seg),
         _ => None,
@@ -1158,6 +1173,23 @@ fn vector_overlay(
     }
     if let Some([x0, y0, x1, y1]) = ov.rubber.filter(|_| active) {
         painter.add(Shape::dashed_line(&[app.to_screen(x0, y0), app.to_screen(x1, y1)], stroke(ACCENT, 1.0), 4.0, 3.0));
+    }
+}
+
+/// Width of the lines hatching the hovered and selected regions in vector edit mode (screen px).
+const REGION_HATCH_WIDTH: f32 = 1.4;
+
+/// Vector edit mode: the selected regions and the hovered one hatched in the selection colour,
+/// under the segments and points (the engine lays out and clips the lines).
+fn region_hatch(app: &FigApp, painter: &egui::Painter) {
+    let Ok(ds) = app.session.ds() else { return };
+    let (ox, oy) = ds.view.page_to_screen(0.0, 0.0);
+    let (z, min) = (ds.view.zoom, app.canvas.rect.min);
+    let view = figcraft_geom::Affine::new([z, 0.0, 0.0, z, f64::from(min.x) + ox, f64::from(min.y) + oy]);
+    let r = painter.clip_rect();
+    let clip = figcraft_geom::Rect::new(f64::from(r.min.x), f64::from(r.min.y), f64::from(r.max.x), f64::from(r.max.y));
+    for [a, b] in app.session.vector_region_hatch(view, Some(clip)) {
+        painter.line_segment([pos2(a.x as f32, a.y as f32), pos2(b.x as f32, b.y as f32)], stroke(ACCENT, REGION_HATCH_WIDTH));
     }
 }
 

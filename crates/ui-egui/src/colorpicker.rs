@@ -782,8 +782,8 @@ pub fn show(app: &mut FigApp, ctx: &egui::Context) {
                     ui.add_space(16.0);
                     widgets::label(ui, tr("On this page"), t.text_secondary);
                 });
-                ui.horizontal_wrapped(|ui| {
-                    ui.add_space(16.0);
+                // Inset on both sides: `add_space` would only indent the first row of a wrap.
+                inset(ui, |ui| {
                     for c in &doc_colors {
                         if widgets::swatch(ui, &Paint::solid(*c), 14.0).on_hover_text(c.to_hex()).clicked() {
                             set_color(app, &target, &mut paint, *c, sel_stop_id, ui);
@@ -798,8 +798,7 @@ pub fn show(app: &mut FigApp, ctx: &egui::Context) {
                     ui.add_space(16.0);
                     widgets::label(ui, tr("Recent"), t.text_secondary);
                 });
-                ui.horizontal_wrapped(|ui| {
-                    ui.add_space(16.0);
+                inset(ui, |ui| {
                     for c in recent.iter().take(14) {
                         if widgets::swatch(ui, &Paint::solid(*c), 14.0).clicked() {
                             set_color(app, &target, &mut paint, *c, sel_stop_id, ui);
@@ -814,6 +813,11 @@ pub fn show(app: &mut FigApp, ctx: &egui::Context) {
         app.ui.picker = None;
     }
     let _ = Pos2::ZERO;
+}
+
+/// Swatches wrapped in rows inset 16 points from both sides of the picker.
+fn inset(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
+    egui::Frame::NONE.inner_margin(egui::Margin::symmetric(16, 0)).show(ui, |ui| ui.horizontal_wrapped(add));
 }
 
 /// The colour picker's note under the fields for a colour outside sRGB.

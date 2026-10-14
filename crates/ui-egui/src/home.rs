@@ -1,5 +1,5 @@
 //! The home screen: Recents (new file, open, join with a code, the Getting started tips, open and
-//! recent files, and templates to start from on a first run), Online (your online files:
+//! recent files ([`crate::home_recents`]), and templates to start from on a first run), Online (your online files:
 //! [`crate::online`]) and Templates (the starter templates as cards with thumbnails rendered from
 //! the documents themselves, searched and filtered by kind).
 
@@ -54,6 +54,8 @@ pub struct Home {
     /// The Templates search text and kind filter.
     pub query: String,
     pub kind: Option<Kind>,
+    /// The recent files: what is known about each, and the selection.
+    pub recents: crate::home_recents::Recents,
 }
 
 const SIDEBAR: f32 = 240.0;
@@ -264,20 +266,7 @@ fn recents(app: &mut FigApp, ui: &mut Ui, t: &Tokens) {
         }
         return;
     }
-    subheading(ui, t, tr("Recent files"));
-    let mut open_path = None;
-    for p in recents.iter().take(12) {
-        let name = std::path::Path::new(p).file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_else(|| p.clone());
-        let row = FileRow { mark: None, name: &name, ink: t.text, detail: p, detail_size: 10.0, detail_ink: t.text_tertiary };
-        if listed(ui, t, ui.id().with(("recent", p.as_str())), 32.0, &row) {
-            open_path = Some(p.clone());
-        }
-    }
-    if let Some(p) = open_path
-        && app.run("file.open", json!({"path": p})).is_some()
-    {
-        app.ui.home = false;
-    }
+    crate::home_recents::section(app, ui, t);
 }
 
 /// The file joined from the home screen (a code, or one of your online files) opened in a tab of

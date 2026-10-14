@@ -242,6 +242,12 @@ pub fn focus(app: &mut FigApp, ctx: &Context, id: u64) -> Result<Value, String> 
 pub(crate) fn requests(app: &mut FigApp, ctx: &Context) {
     for r in std::mem::take(&mut app.window_requests) {
         let n = |k: &str| r.data.get(k).and_then(Value::as_u64);
+        if r.kind == "window.fullscreen" {
+            let full = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
+            let on = r.data.get("on").and_then(Value::as_bool).unwrap_or(!full);
+            ctx.send_viewport_cmd(ViewportCommand::Fullscreen(on));
+            continue;
+        }
         let res = if r.kind == "window.new" {
             open(app, ctx, n("index").map(|i| i as usize), r.data.get("path").and_then(Value::as_str), None).map(|_| ())
         } else {

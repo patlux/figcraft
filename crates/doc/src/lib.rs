@@ -21,6 +21,7 @@ pub mod styles;
 pub mod text;
 pub mod vector;
 pub mod vector_faces;
+pub mod vector_regions;
 
 pub use colors::*;
 pub use comments::*;
@@ -939,7 +940,11 @@ impl Document {
             if n.id != *id {
                 issues.push(format!("node key {id} has id {}", n.id));
             }
+            let mut seen = std::collections::BTreeSet::new();
             for c in &n.children {
+                if !seen.insert(*c) {
+                    issues.push(format!("child {c} listed twice in {id}"));
+                }
                 match self.node(*c) {
                     Some(cn) if cn.parent == Some(*id) => {}
                     Some(_) => issues.push(format!("child {c} of {id} has another parent")),
@@ -956,8 +961,30 @@ impl Document {
             if n.is_page() != listed {
                 issues.push(format!("page list mismatch for {id}"));
             }
+            if n.is_page() && n.parent.is_some() {
+                issues.push(format!("page {id} has a parent"));
+            }
+        }
+        let reachable = self.reachable();
+        for id in self.nodes.keys().filter(|k| !reachable.contains(*k)) {
+            issues.push(format!("{id} is not under a page (cycle or detached)"));
         }
         issues
+    }
+
+    /// Every node reachable from a page through reciprocal parent/child links, each once (cycles
+    /// and repeated children are walked once, so this is linear in the node count).
+    fn reachable(&self) -> std::collections::BTreeSet<NodeId> {
+        let mut seen = std::collections::BTreeSet::new();
+        let mut stack: Vec<NodeId> = self.nodes.iter().filter(|(_, n)| n.is_page() && n.parent.is_none()).map(|(k, _)| *k).collect();
+        while let Some(id) = stack.pop() {
+            if !seen.insert(id) {
+                continue;
+            }
+            let Some(n) = self.nodes.get(&id) else { continue };
+            stack.extend(n.children.iter().filter(|c| !seen.contains(*c) && self.nodes.get(*c).is_some_and(|cn| cn.parent == Some(id))));
+        }
+        seen
     }
 
     /// Repair what [`validate`](Self::validate) reports (lenient loading of untrusted files).
@@ -967,34 +994,30 @@ impl Document {
             if let Some(n) = self.nodes.get_mut(id) {
                 let n = Arc::make_mut(n);
                 n.id = *id;
+                // Pages are roots.
+                if n.is_page() {
+                    n.parent = None;
+                }
             }
         }
-        // Drop dangling children and children claimed by another parent.
+        // Drop dangling children, children claimed by another parent and repeats.
         let parents: BTreeMap<NodeId, Option<NodeId>> = self.nodes.iter().map(|(k, n)| (*k, n.parent)).collect();
         for id in &ids {
             let Some(n) = self.nodes.get(id) else { continue };
-            let keep: Vec<NodeId> = n.children.iter().copied().filter(|c| parents.get(c).copied().flatten() == Some(*id)).collect();
+            let mut seen = std::collections::BTreeSet::new();
+            let keep: Vec<NodeId> =
+                n.children.iter().copied().filter(|c| parents.get(c).copied().flatten() == Some(*id) && seen.insert(*c)).collect();
             if keep != n.children
                 && let Some(n) = self.nodes.get_mut(id)
             {
                 Arc::make_mut(n).children = keep;
             }
         }
-        // Orphans (parent missing or not listing them) are removed.
-        loop {
-            let orphan = self.nodes.iter().find_map(|(k, n)| {
-                if n.is_page() {
-                    return None;
-                }
-                match n.parent {
-                    Some(p) if self.nodes.get(&p).is_some_and(|pn| pn.children.contains(k)) => None,
-                    _ => Some(*k),
-                }
-            });
-            let Some(o) = orphan else { break };
-            for d in self.subtree(o) {
-                self.nodes.remove(&d);
-            }
+        // Nodes not under a page (orphans, detached subtrees, cycles) are removed.
+        let reachable = self.reachable();
+        let gone: Vec<NodeId> = self.nodes.keys().filter(|k| !reachable.contains(*k)).copied().collect();
+        for k in gone {
+            self.nodes.remove(&k);
         }
         // Snapshots of layers that are gone or no longer changed since marked ready for dev, or that
         // don't start with their layer, are dropped.
@@ -1129,6 +1152,8 @@ mod proto_expr_parse_tests;
 mod proto_expr_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod vector_regions_tests;
 #[cfg(test)]
 mod width_sides_tests;
 #[cfg(test)]

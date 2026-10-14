@@ -2238,7 +2238,7 @@ fn inspect(app: &mut FigApp, ui: &mut Ui) {
     let copy = widgets::section_header(ui, tr("Code"), &[(Icon::Export, tr("Copy"))], false).is_some();
     // Pixels or rem (of a 16 px root) for the web languages.
     let rem_id = Id::new("inspect_rem");
-    let web = matches!(lang, CodeLang::Css | CodeLang::Html | CodeLang::React);
+    let web = lang.is_web();
     let rem = web && ui.data(|d| d.get_temp::<bool>(rem_id)).unwrap_or(false);
     row(ui, 32.0, |ui| {
         let resp = widgets::dropdown(ui, lang.label(), 120.0, Some(Icon::Code));

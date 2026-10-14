@@ -249,6 +249,35 @@ fn design_panel_edits_reach_every_selected_layer() {
 }
 
 #[test]
+fn constrain_proportions_keeps_the_other_side_in_ratio() {
+    let mut s = session();
+    // The Layout panel's link is a per-layer property: typing W or H scales the other side by the
+    // node's own ratio; both sides in one edit stay as typed, and so does an unlinked edit.
+    let r = rect(&mut s, 0.0, 0.0, 100.0, 50.0, None);
+    set(&mut s, &[r], json!({"constrainProportions": true}));
+    set(&mut s, &[r], json!({"width": 200}));
+    assert_eq!(size(&s, r), (200.0, 100.0), "W ×2 makes H ×2");
+    set(&mut s, &[r], json!({"height": 25}));
+    assert_eq!(size(&s, r), (50.0, 25.0), "H 25 makes W follow the ratio");
+    set(&mut s, &[r], json!({"width": 30, "height": 40}));
+    assert_eq!(size(&s, r), (30.0, 40.0), "both sides in one edit stay as typed");
+    set(&mut s, &[r], json!({"constrainProportions": false}));
+    set(&mut s, &[r], json!({"width": 60}));
+    assert_eq!(size(&s, r), (60.0, 40.0), "unlinked: the other side stays put");
+    // The short aliases work the same, and each layer of a selection follows its own ratio.
+    let a = rect(&mut s, 0.0, 0.0, 20.0, 10.0, None);
+    let b = rect(&mut s, 100.0, 0.0, 30.0, 10.0, None);
+    set(&mut s, &[a, b], json!({"constrainProportions": true}));
+    set(&mut s, &[a, b], json!({"h": 20}));
+    assert_eq!((size(&s, a), size(&s, b)), ((40.0, 20.0), (60.0, 20.0)), "each layer keeps its own ratio");
+    // A zero side has no ratio to keep: the edit applies to the side typed only.
+    let z = rect(&mut s, 0.0, 0.0, 100.0, 50.0, None);
+    set(&mut s, &[z], json!({"constrainProportions": true, "height": 0}));
+    set(&mut s, &[z], json!({"width": 20}));
+    assert_eq!(size(&s, z), (20.0, 0.0), "a zero height leaves nothing to scale");
+}
+
+#[test]
 fn frames_resize_with_constraints_and_cmd_ignores_them() {
     let mut s = session();
     let f = id(&ex(&mut s, "frame.create", json!({"x": 0, "y": 0, "width": 200, "height": 100})));

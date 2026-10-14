@@ -57,3 +57,23 @@ fn class_names_are_valid_and_deep_trees_are_bounded() {
     // Nesting stops at the depth limit instead of running away.
     assert!(code.matches("<div").count() <= 14, "{}", code.matches("<div").count());
 }
+
+#[test]
+fn leptos_wraps_the_markup_in_a_component_with_text_as_string_literals() {
+    let mut s = Session::new();
+    let card = id(s.execute("frame.create", &json!({"x": 0, "y": 0, "width": 200, "height": 120})).unwrap());
+    s.execute("node.set", &json!({"id": card, "props": {"name": "Card"}})).unwrap();
+    let t = id(s.execute("text.create", &json!({"text": "Say \"hi\" {x}\nسلام", "x": 0, "y": 60})).unwrap());
+    s.execute("node.reparent", &json!({"ids": [t], "parent": card})).unwrap();
+
+    let code = code_for(s.doc().unwrap(), card, CodeLang::Leptos);
+    assert!(
+        code.starts_with("use leptos::prelude::*;\n\n#[component]\npub fn Card() -> impl IntoView {\n    view! {\n        <div class=\"card\">"),
+        "{code}"
+    );
+    // Quotes and braces stay inside Rust string literals; lines break with a self-closed tag.
+    assert!(code.contains(r#">"Say \"hi\" {x}"<br/>"سلام"</p>"#), "{code}");
+    assert!(code.contains("/* card.css */\n") && code.contains(".card {\n  position: relative;\n"), "{code}");
+    let out = s.execute("inspect.code", &json!({"id": card, "language": "leptos", "unit": "rem"})).unwrap();
+    assert!(out["code"].as_str().unwrap().contains("width: 12.5rem;"), "{}", out["code"]);
+}

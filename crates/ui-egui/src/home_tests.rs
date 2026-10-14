@@ -217,7 +217,7 @@ fn a_first_run_offers_templates_on_recents_and_recent_files_replace_them() {
     u.app.ui.home = true;
     u.app.session.prefs.recent_files = vec!["/tmp/ridgeline.figcraft".into()];
     let s = settle(&mut u);
-    assert!(has_text(&s, "Recent files") && has_text(&s, "ridgeline.figcraft"));
+    assert!(has_text(&s, "Recent files") && has_text(&s, "ridgeline"));
     assert!(!has_text(&s, "Start from a template") && !has_text(&s, "See all templates"));
     assert!(has_text(&s, "Open files"), "the document opened from the template is listed");
 }

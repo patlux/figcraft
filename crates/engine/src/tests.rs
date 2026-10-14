@@ -77,6 +77,36 @@ fn node_set_and_errors_roll_back() {
 }
 
 #[test]
+fn failed_batch_restores_all_documents_and_history() {
+    let mut s = sess();
+    let original = id(&s.execute("shape.rectangle", &json!({"x": 0, "y": 0, "width": 10, "height": 10})).unwrap());
+    s.execute("file.new", &json!({"name": "Second"})).unwrap();
+    s.execute("doc.nextTab", &json!({})).unwrap();
+    let before_journal = s.journal.clone();
+    let before_history: Vec<_> = s.docs.iter().map(|d| d.history.undo.len()).collect();
+
+    let result = s.execute(
+        "command.batch",
+        &json!({
+            "label": "Broken batch",
+            "commands": [
+                {"command": "doc.nextTab"},
+                {"command": "shape.rectangle", "params": {"x": 20, "y": 20, "width": 10, "height": 10}},
+                {"command": "node.set", "params": {"id": 999999, "props": {"name": "must fail"}}}
+            ]
+        }),
+    );
+
+    assert!(result.is_err());
+    assert_eq!(s.active, 0, "the active document is part of the transaction");
+    assert_eq!(s.docs.len(), 2, "a failed batch cannot leave a newly opened tab behind");
+    assert_eq!(s.doc().unwrap().node(original).unwrap().name, "Rectangle");
+    assert_eq!(s.docs[1].doc.node(s.docs[1].page).map_or(0, |page| page.children.len()), 0);
+    assert_eq!(s.docs.iter().map(|d| d.history.undo.len()).collect::<Vec<_>>(), before_history);
+    assert_eq!(s.journal, before_journal, "failed inner commands are not journaled");
+}
+
+#[test]
 fn group_ungroup_and_frame() {
     let mut s = sess();
     let a = id(&s.execute("shape.rectangle", &json!({"x": 0, "y": 0, "width": 10, "height": 10})).unwrap());

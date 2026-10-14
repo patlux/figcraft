@@ -53,6 +53,9 @@ page 1 "Screens": 380 nodes, 4 top-level
   data…) is printed as `note:` lines.
 - The format comes from `--format`, else `<out>`'s extension, else png. `--scale` (default 1, max 64)
   applies to raster formats.
+- SVG/PDF exports with visible descendants more than 256 levels below an exported root fail with
+  an error instead of writing an incomplete file. Select an inner layer with `--node` or reduce
+  nesting. An existing destination file is kept on this failure.
 - A `.pdf` `<out>` without `--node` holds the page's top-level frames, one PDF page each in reading
   order, each the frame's size in points (a page without frames goes on one page). Shapes, text
   and gradients stay vector, text is real (selectable, with subset fonts) and its links clickable;

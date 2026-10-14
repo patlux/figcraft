@@ -189,3 +189,25 @@ fn enter_with_a_shape_tool_places_one_in_the_middle_of_the_view() {
     press(&mut u, Key::Enter, Modifiers::NONE);
     assert!(u.app.session.ds().unwrap().vector_edit.is_some());
 }
+
+#[test]
+fn full_screen_key_and_command_toggle_the_window() {
+    let mut u = Ui::new(Session::new());
+    let fullscreen = |out: &egui::FullOutput| -> Vec<ViewportCommand> {
+        out.viewport_output.get(&ViewportId::ROOT).map(|v| v.commands.clone()).unwrap_or_default()
+    };
+    // F11 (Windows and Linux) or Ctrl+Cmd+F (macOS) asks the window to fill the screen.
+    let out = if crate::shortcuts::platform() == Platform::Mac {
+        press(&mut u, Key::F, Modifiers::MAC_CMD | Modifiers::COMMAND | Modifiers::CTRL)
+    } else {
+        press(&mut u, Key::F11, Modifiers::NONE)
+    };
+    assert!(fullscreen(&out).contains(&ViewportCommand::Fullscreen(true)), "full screen key, {:?}", fullscreen(&out));
+    // `on: false` leaves it, whatever the window reports.
+    u.app.run("view.fullscreen", json!({"on": false}));
+    let out = u.frame_output(vec![]);
+    assert!(fullscreen(&out).contains(&ViewportCommand::Fullscreen(false)), "{:?}", fullscreen(&out));
+    // Junk parameters are ignored, not fatal.
+    u.app.run("view.fullscreen", json!({"on": "yes"}));
+    u.frame(vec![]);
+}

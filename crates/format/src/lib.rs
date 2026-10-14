@@ -20,6 +20,7 @@
 pub mod fig;
 pub mod library;
 pub mod rest;
+pub mod thumbnail;
 
 pub use library::{is_valid_library_id, read_library, read_library_within};
 
@@ -465,11 +466,17 @@ pub fn load_bytes_with_versions(bytes: &[u8]) -> Result<Loaded, FormatError> {
     let (mut doc, mut issues, own_images) = parse_json(&text)?;
     let names: Vec<String> = z.file_names().filter(|n| n.starts_with("images/")).map(str::to_string).collect();
     let mut images = BTreeMap::new();
+    let mut unread = Vec::new();
     for name in names {
-        let Ok(data) = read_member(&mut z, &name, MAX_MEMBER) else { continue };
         let hash = name.trim_start_matches("images/").to_string();
-        images.insert(hash, image_data(data));
+        match read_member(&mut z, &name, MAX_MEMBER) {
+            Ok(data) => {
+                images.insert(hash, image_data(data));
+            }
+            Err(e) => unread.push((hash, e)),
+        }
     }
+    report_lost_images(&mut issues, &unread, own_images.as_ref(), &images);
     match library::read(&mut z, &images, u64::MAX) {
         Ok(lib) => doc.published = lib.map(Arc::new),
         Err(e) => issues.push(format!("the published library was skipped: {e}")),
@@ -488,6 +495,42 @@ pub fn load_bytes_with_versions(bytes: &[u8]) -> Result<Loaded, FormatError> {
         .collect();
     doc.images = images.into_iter().filter(|(h, _)| !history_only.contains(h)).collect();
     Ok(Loaded { doc, issues, versions, branches })
+}
+
+/// Most lost images reported one by one (the rest as a count).
+const MAX_IMAGE_ISSUES: usize = 20;
+
+/// Report the images a file lost on loading: members that couldn't be read (damaged, too large)
+/// and images its document lists but the archive doesn't hold. They are left out, so saving the
+/// file again would drop them for good.
+fn report_lost_images(
+    issues: &mut Vec<String>,
+    unread: &[(String, FormatError)],
+    listed: Option<&BTreeSet<String>>,
+    images: &BTreeMap<String, ImageData>,
+) {
+    let mut lost: Vec<String> = unread
+        .iter()
+        .map(|(hash, e)| {
+            let why = match e {
+                FormatError::Corrupt(m) | FormatError::Io(m) => m.clone(),
+                FormatError::Newer(v) => format!("format version {v}"),
+            };
+            format!("image {hash} couldn't be read ({why}): it is left out, and saving this file again drops it")
+        })
+        .collect();
+    let unread_hashes: BTreeSet<&str> = unread.iter().map(|(h, _)| h.as_str()).collect();
+    for hash in listed.into_iter().flatten() {
+        if !images.contains_key(hash) && !unread_hashes.contains(hash.as_str()) {
+            lost.push(format!("image {hash} is used by the file but its data is missing: it is left out, and saving this file again drops it"));
+        }
+    }
+    let more = lost.len().saturating_sub(MAX_IMAGE_ISSUES);
+    lost.truncate(MAX_IMAGE_ISSUES);
+    issues.extend(lost);
+    if more > 0 {
+        issues.push(format!("{more} more images couldn't be loaded"));
+    }
 }
 
 /// The version history kept under `dir` in an archive (none when it has no index), reading at
@@ -630,7 +673,11 @@ pub fn load_file(path: &std::path::Path) -> Result<(Document, Vec<String>), Form
 #[cfg(test)]
 mod branch_tests;
 #[cfg(test)]
+mod image_tests;
+#[cfg(test)]
 mod large_tests;
+#[cfg(test)]
+mod thumbnail_tests;
 #[cfg(test)]
 mod version_tests;
 

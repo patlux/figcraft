@@ -426,7 +426,7 @@ impl Store {
         let meta: Meta = serde_json::from_slice(&disk::read_capped(&path.join(META), 1 << 20)?).map_err(|e| format!("{META} is damaged ({e})"))?;
         let links: Vec<Link> =
             serde_json::from_slice(&disk::read_capped(&path.join(LINKS), 16 << 20)?).map_err(|e| format!("{LINKS} is damaged ({e})"))?;
-        let generation = disk::check_snapshot(&disk::read_capped(&path.join(SNAPSHOT), self.cfg.max_file_bytes)?)?;
+        let generation = disk::check_snapshot(&disk::read_capped(&path.join(SNAPSHOT), self.snapshot_cap())?)?;
         // A damaged log only loses its end; it is reported when the file opens.
         if let Ok(bytes) = disk::read_capped(&path.join(LOG), self.cfg.max_file_bytes)
             && let Ok(log) = disk::read_log(&bytes)
@@ -1086,7 +1086,7 @@ impl Store {
     fn load(&mut self, file: &str) -> Result<Server, String> {
         self.touch(file);
         let dir = self.dir(file);
-        let (generation, state) = disk::decode_snapshot(&disk::read_capped(&dir.join(SNAPSHOT), self.cfg.max_file_bytes)?)?;
+        let (generation, state) = disk::decode_snapshot(&disk::read_capped(&dir.join(SNAPSHOT), self.snapshot_cap())?)?;
         let mut server = Server::restore(state, "", self.cfg.core).map_err(|e| format!("the snapshot can't be used: {e}"))?;
         let mut issues = Vec::new();
         let mut fresh_log = true;
@@ -1130,11 +1130,22 @@ impl Store {
         Ok(server)
     }
 
+    /// The largest snapshot read back: a file's cap plus room for what its state keeps beside the
+    /// document (recent batches for reconnecting clients, deletions), which may take it over.
+    fn snapshot_cap(&self) -> u64 {
+        self.cfg.max_file_bytes.saturating_mul(2)
+    }
+
     /// Write `server`'s state as snapshot `generation` and start an empty log of it.
     fn rewrite(&mut self, file: &str, generation: u64, server: &Server) -> Result<Log, String> {
         let dir = self.dir(file);
         let state = server.state().map_err(|e| e.to_string())?;
         let bytes = disk::encode_snapshot(generation, &state)?;
+        // Never replace a readable snapshot with one that can't be opened again: the old snapshot
+        // and log still hold everything.
+        if bytes.len() as u64 > self.snapshot_cap() {
+            return Err(format!("the snapshot would be {} MiB, more than can be opened again", bytes.len() >> 20));
+        }
         if bytes.len() as u64 > self.cfg.max_file_bytes {
             log::warn!("file {file} is {} MiB, over the {} MiB cap (kept anyway)", bytes.len() >> 20, self.cfg.max_file_bytes >> 20);
         }

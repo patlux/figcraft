@@ -282,6 +282,30 @@ fn serde_roundtrip_and_repair() {
 }
 
 #[test]
+fn repair_drops_cycles_and_repeated_children() {
+    let mut d = Document::new("x");
+    let p = page(&d);
+    let f = d.create(p, NodeKind::Frame, "F", 0.0, 0.0, 100.0, 100.0).unwrap();
+    let g = d.create(f, NodeKind::Frame, "G", 0.0, 0.0, 10.0, 10.0).unwrap();
+    let r = d.create(p, NodeKind::Rectangle, "R", 0.0, 0.0, 10.0, 10.0).unwrap();
+    let mut v = serde_json::to_value(&d).unwrap();
+    // F and G each other's parent and child (G listing F twice), and R listed twice by the page.
+    v["nodes"][f.to_string()]["parent"] = serde_json::json!(g);
+    v["nodes"][g.to_string()]["children"] = serde_json::json!([f, f]);
+    v["nodes"][p.to_string()]["children"].as_array_mut().unwrap().push(serde_json::json!(r));
+    let mut bad: Document = serde_json::from_value(v).unwrap();
+    let issues = bad.validate();
+    for want in ["listed twice", "not under a page"] {
+        assert!(issues.iter().any(|i| i.contains(want)), "{want}: {issues:?}");
+    }
+    bad.repair();
+    assert!(bad.validate().is_empty(), "{:?}", bad.validate());
+    assert!(bad.node(f).is_none() && bad.node(g).is_none());
+    assert_eq!(bad.node(p).unwrap().children, vec![r]);
+    assert_eq!(bad.subtree(p), vec![p, r]);
+}
+
+#[test]
 fn auto_layout_loads_files_without_grid_tracks() {
     // Saved before grid tracks, cells and spans existed.
     let al: AutoLayout = serde_json::from_str(r#"{"mode":"grid","gap":4,"grid_columns":3,"grid_rows":2}"#).unwrap();

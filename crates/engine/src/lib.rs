@@ -591,6 +591,14 @@ pub struct Prefs {
     /// The Getting started tips on the home screen were closed (Help ▸ Getting started shows them
     /// again).
     pub getting_started_dismissed: bool,
+    /// How each home screen section shows its files, by section id (`"recents"`): `"grid"` (cards
+    /// with the picture each file carries) or `"list"` (a table). Missing: the grid.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub home_views: BTreeMap<String, String>,
+    /// What the home screen's recent files are ordered by: `"modified"`, `"name"` or `"created"`.
+    pub home_sort: String,
+    /// Which way: `"desc"` (newest first, Z to A) or `"asc"`.
+    pub home_order: String,
 }
 
 impl Default for Prefs {
@@ -616,6 +624,9 @@ impl Default for Prefs {
             recent_files: Vec::new(),
             online_files: Vec::new(),
             getting_started_dismissed: false,
+            home_views: BTreeMap::new(),
+            home_sort: "modified".into(),
+            home_order: "desc".into(),
         }
     }
 }
@@ -789,6 +800,10 @@ impl Session {
     /// as it was.
     pub fn execute(&mut self, id: &str, params: &Value) -> Result<Value> {
         let spec = find_command(id).ok_or_else(|| EngineError::UnknownCommand(id.to_string()))?;
+        // Revert replaces the document's uid: refuse before ending previews or syncing branches.
+        if id == "file.revert" && self.live().doc_uid.is_some() {
+            return Err(EngineError::Disabled(id.into(), "leave the live session before reverting to the saved file".into()));
+        }
         branches::sync(self);
         if textpreview::COMMANDS.contains(&id) {
             // A live preview is no edit: no undo step, normalisation or rollback here.
@@ -1062,24 +1077,57 @@ impl Session {
     }
 
     /// Run `f` as one undo step called `label`: the commands it executes push no steps of their
-    /// own, and when it fails the document, selection, page and history are put back.
+    /// own, and when it fails the documents stay at their group-start state.
     pub fn grouped<T>(&mut self, label: &str, f: impl FnOnce(&mut Self) -> Result<T>) -> Result<T> {
-        let ds = self.ds_mut()?;
-        let (before, sel, page, saved_len, uid) = (ds.doc.clone(), ds.selection.clone(), ds.page, ds.history.undo.len(), ds.uid);
+        self.ds()?;
+        let before: Vec<_> =
+            self.docs.iter().map(|ds| (ds.uid, ds.doc.clone(), ds.selection.clone(), ds.page, ds.history.undo.len(), ds.history.limit)).collect();
+        let active = self.active;
+        let journal_len = self.journal.len();
+
         // The steps inside are dropped again below, so they mustn't push the oldest ones out.
-        let limit = std::mem::replace(&mut ds.history.limit, usize::MAX);
-        self.live_hold(uid, true);
+        for ds in &mut self.docs {
+            ds.history.limit = usize::MAX;
+        }
+        for (uid, _, _, _, _, _) in &before {
+            self.live_hold(*uid, true);
+        }
         let result = f(self);
-        self.live_hold(uid, false);
-        let Some(ds) = self.docs.iter_mut().find(|d| d.uid == uid) else { return result };
-        ds.history.limit = limit;
-        ds.history.undo.truncate(saved_len);
+        for (uid, _, _, _, _, _) in &before {
+            self.live_hold(*uid, false);
+        }
+
         if result.is_err() {
-            ds.doc = before;
-            ds.selection = sel;
-            ds.page = page;
-        } else if !Arc::ptr_eq(&before, &ds.doc) {
-            self.record(uid, Some(label), before, sel, page);
+            self.docs.retain(|ds| before.iter().any(|(uid, _, _, _, _, _)| *uid == ds.uid));
+            for (uid, doc, selection, page, undo_len, limit) in &before {
+                if let Some(ds) = self.docs.iter_mut().find(|ds| ds.uid == *uid) {
+                    ds.doc = doc.clone();
+                    ds.selection = selection.clone();
+                    ds.page = *page;
+                    ds.history.undo.truncate(*undo_len);
+                    ds.history.limit = *limit;
+                }
+            }
+            self.active = active;
+            self.journal.truncate(journal_len);
+            return result;
+        }
+
+        let changed: Vec<_> = before
+            .iter()
+            .filter_map(|(uid, doc, selection, page, _, _)| {
+                let ds = self.docs.iter().find(|d| d.uid == *uid)?;
+                (!Arc::ptr_eq(doc, &ds.doc) && ds.interaction.is_none()).then(|| (*uid, doc.clone(), selection.clone(), *page))
+            })
+            .collect();
+        for ds in &mut self.docs {
+            if let Some((_, _, _, _, undo_len, limit)) = before.iter().find(|before| before.0 == ds.uid) {
+                ds.history.limit = *limit;
+                ds.history.undo.truncate(*undo_len);
+            }
+        }
+        for (uid, doc, selection, page) in changed {
+            self.record(uid, Some(label), doc, selection, page);
         }
         result
     }
@@ -1343,6 +1391,8 @@ mod arc_handles_tests;
 #[cfg(test)]
 mod autosave_tests;
 #[cfg(test)]
+mod batch_rollback_tests;
+#[cfg(test)]
 mod binding_lists_tests;
 #[cfg(test)]
 mod booleans_tests;
@@ -1394,6 +1444,8 @@ mod draw_tools_tests;
 mod effects_tests;
 #[cfg(test)]
 mod export_behaviour_tests;
+#[cfg(test)]
+mod export_depth_tests;
 #[cfg(test)]
 mod extended_chain_tests;
 #[cfg(test)]
@@ -1453,6 +1505,8 @@ mod nested_override_tests;
 #[cfg(test)]
 mod online_tests;
 #[cfg(test)]
+mod open_issues_tests;
+#[cfg(test)]
 mod outline_options_tests;
 #[cfg(test)]
 mod paint_reorder_tests;
@@ -1471,7 +1525,7 @@ mod plugin_directory_tests;
 #[cfg(test)]
 mod plugin_panels_tests;
 #[cfg(test)]
-mod plugins_tests;
+pub(crate) mod plugins_tests;
 #[cfg(test)]
 mod progressive_blur_tests;
 #[cfg(test)]
