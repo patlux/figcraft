@@ -90,6 +90,11 @@ pub fn serve_hidden(app: &mut FigApp, ctx: &Context) {
         }
         let target = r.params.get("window").and_then(Value::as_u64).unwrap_or(app.windows.focused);
         if app.windows.exists(target) && !hidden(ctx, target) {
+            // Another window on screen draws only when asked: while the main window is hidden no
+            // frame of it does that ([`drain`]), so ask here.
+            if target != app.windows.current {
+                ctx.request_repaint_of(crate::windows::viewport(target));
+            }
             app.control_queue.push(r);
             continue;
         }
