@@ -69,11 +69,17 @@ mod theme_startup_tests;
 #[cfg(test)]
 mod a11y_tests;
 #[cfg(test)]
+mod async_dialog_tests;
+#[cfg(test)]
 mod branch_ui_tests;
+#[cfg(test)]
+mod canvas_double_click_tests;
 #[cfg(test)]
 mod canvas_drag_tests;
 #[cfg(test)]
 mod canvas_fixes_tests;
+#[cfg(test)]
+mod colorpicker_selection_tests;
 #[cfg(test)]
 mod comments_tests;
 #[cfg(test)]
@@ -90,6 +96,8 @@ mod frame_label_tests;
 mod gap_handle_tests;
 #[cfg(test)]
 mod gradient_shorthand_tests;
+#[cfg(test)]
+mod guide_release_tests;
 #[cfg(test)]
 mod home_recents_tests;
 #[cfg(test)]
@@ -125,9 +133,13 @@ mod online_tests;
 #[cfg(test)]
 mod open_issues_tests;
 #[cfg(test)]
+mod panel_remove_tests;
+#[cfg(test)]
 mod panel_reorder_tests;
 #[cfg(test)]
 mod panel_width_tests;
+#[cfg(test)]
+mod pen_mode_tests;
 #[cfg(test)]
 mod perf_tests;
 #[cfg(test)]
@@ -147,6 +159,8 @@ mod proto_reorder_tests;
 #[cfg(test)]
 mod proto_responsive_tests;
 #[cfg(test)]
+mod select_all_tests;
+#[cfg(test)]
 mod shortcut_keys_tests;
 #[cfg(test)]
 mod shortcuts_tests;
@@ -157,7 +171,11 @@ mod text_enter_tests;
 #[cfg(test)]
 mod titlebar_tests;
 #[cfg(test)]
+mod variables_export_ui_tests;
+#[cfg(test)]
 mod variables_rename_tests;
+#[cfg(test)]
+mod vector_panel_tests;
 #[cfg(test)]
 mod vector_tail_ui_tests;
 #[cfg(test)]
@@ -168,7 +186,11 @@ mod windows_qa_tests;
 mod windows_tests;
 
 use std::collections::BTreeSet;
+use std::future::Future;
 use std::path::PathBuf;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{Context as TaskContext, Poll, Wake, Waker};
 
 use figcraft_doc::NodeId;
 use figcraft_engine::Session;
@@ -178,15 +200,24 @@ pub use control::{ControlReply, ControlRequest};
 
 /// Platform services the app crate provides (file dialogs, clipboard, URLs).
 pub trait Services {
-    fn pick_open(&mut self, _title: &str, _exts: &[&str]) -> Option<PathBuf> {
-        None
+    fn pick_open(&mut self, _title: &str, _exts: &[&str]) -> DialogFuture {
+        Box::pin(std::future::ready(None))
     }
-    fn pick_save(&mut self, _title: &str, _name: &str, _exts: &[&str]) -> Option<PathBuf> {
-        None
+    fn pick_save(&mut self, _title: &str, _name: &str, _exts: &[&str]) -> DialogFuture {
+        Box::pin(std::future::ready(None))
+    }
+    /// The platform saves files by handing them over as downloads (the browser), not through
+    /// save dialogs.
+    fn downloads(&self) -> bool {
+        false
+    }
+    /// Hand `bytes` over as a download named `name`; false when nothing was delivered.
+    fn download(&mut self, _name: &str, _bytes: &[u8]) -> bool {
+        false
     }
     /// A folder to write several files into.
-    fn pick_folder(&mut self, _title: &str) -> Option<PathBuf> {
-        None
+    fn pick_folder(&mut self, _title: &str) -> DialogFuture {
+        Box::pin(std::future::ready(None))
     }
     fn clipboard_set_text(&mut self, _s: &str) {}
     fn clipboard_get_text(&mut self) -> Option<String> {
@@ -219,6 +250,34 @@ pub trait Services {
     /// player asks every frame while its prototype has gamepad triggers.
     fn gamepad_held(&mut self) -> u32 {
         0
+    }
+}
+
+pub type DialogFuture = Pin<Box<dyn Future<Output = Option<PathBuf>>>>;
+type DialogDone = Box<dyn FnOnce(&mut FigApp, PathBuf)>;
+
+/// A native dialog in flight. The app keeps working while it is open, so its result goes to the
+/// file and window it was opened for, not to whichever is in front when it closes.
+struct PendingDialog {
+    future: DialogFuture,
+    /// The path picked, kept until the window that holds `doc` draws.
+    path: Option<PathBuf>,
+    done: DialogDone,
+    /// The file it acts on (`None`: none, such as Open).
+    doc: Option<u64>,
+    /// The window it was opened from.
+    window: u64,
+}
+
+/// Wakes the main window, which hands the result on to the window it belongs to.
+struct RepaintWaker(egui::Context);
+impl Wake for RepaintWaker {
+    fn wake(self: Arc<Self>) {
+        self.0.request_repaint_of(egui::ViewportId::ROOT);
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.0.request_repaint_of(egui::ViewportId::ROOT);
     }
 }
 
@@ -271,8 +330,27 @@ pub enum TitleBar {
 /// How often open documents get an autosave checkpoint (seconds).
 pub const AUTOSAVE_SECS: f64 = 30.0 * 60.0;
 
+/// With auto-save on: how long after a file last changed it is saved, and how long a failed save
+/// waits before trying again (seconds).
+pub const AUTO_SAVE_SECS: f64 = 3.0;
+const AUTO_SAVE_RETRY_SECS: f64 = 60.0;
+
+/// A file being encoded for auto-save: its snapshot and, once done, its bytes.
+pub type AutoSaveEncoding = std::thread::JoinHandle<(figcraft_engine::cmd::file::FileSnapshot, figcraft_engine::Result<Vec<u8>>)>;
+
 /// How long a toast shows (seconds).
 const TOAST_SECS: f64 = 3.0;
+
+/// How long a toast has been showing ([`UiState::toast`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ToastClock {
+    /// Raised, not drawn yet.
+    Raised,
+    /// Drawn once; the next frame starts the clock.
+    Drawn,
+    /// Showing since this time (UI clock, seconds).
+    Since(f64),
+}
 
 /// Draw another frame `secs` from now (nothing else needs drawing until then: an idle window draws
 /// no frames).
@@ -310,6 +388,8 @@ pub struct UiState {
     pub left_width: f32,
     pub right_width: f32,
     pub right_tab: RightTab,
+    /// The tab of the previous frame, to see the right panel change mode.
+    pub last_right_tab: RightTab,
     pub left_tab: LeftTab,
     pub pages_open: bool,
     pub expanded: BTreeSet<NodeId>,
@@ -337,8 +417,8 @@ pub struct UiState {
     pub title_bar: TitleBar,
     /// Every icon on one screen, for reviewing the set (control channel `ui.set {iconGallery}`).
     pub icon_gallery: bool,
-    /// A message at the bottom of the window and when it first showed (UI clock, seconds).
-    pub toast: Option<(String, Option<f64>)>,
+    /// A message at the bottom of the window and how long it has been showing.
+    pub toast: Option<(String, ToastClock)>,
     pub present: Option<present::Presenter>,
     /// The full-window presenter's options (how it sizes the prototype), kept between
     /// presentations.
@@ -406,6 +486,11 @@ pub struct UiState {
     pub last_copy: Option<String>,
     /// When (UI clock, seconds) open documents next get an autosave checkpoint.
     pub next_autosave: f64,
+    /// With auto-save on: when (UI clock, seconds) files with unsaved changes are next saved, and
+    /// the revisions of those files it waits on (a change restarts the wait).
+    pub auto_save_at: Option<(f64, u64)>,
+    /// Files being encoded for auto-save on threads of their own (tab `uid`).
+    pub auto_saving: Vec<(u64, AutoSaveEncoding)>,
     /// The Assets panel shows the libraries view (publish this file, enabled libraries).
     pub libraries: bool,
     /// Keyboard navigation: the region with the keyboard, keyboard mode (F6, Tab).
@@ -430,6 +515,7 @@ impl Default for UiState {
             left_width: PANEL_DEFAULT,
             right_width: PANEL_DEFAULT,
             right_tab: RightTab::Design,
+            last_right_tab: RightTab::Design,
             left_tab: LeftTab::File,
             pages_open: true,
             expanded: BTreeSet::new(),
@@ -490,6 +576,8 @@ impl Default for UiState {
 
             last_copy: None,
             next_autosave: 0.0,
+            auto_save_at: None,
+            auto_saving: Vec::new(),
             libraries: false,
             nav: a11y::Nav::default(),
             plugins_window: false,
@@ -533,6 +621,10 @@ pub struct FigApp {
     window_requests: Vec<figcraft_engine::UiRequest>,
     /// Commands waiting for a server ([`FigApp::run_background`]) and what to do with their results.
     waiting: Vec<(String, Done)>,
+    /// Native dialogs complete asynchronously so their modal event loop never re-enters winit.
+    pending_dialog: Option<PendingDialog>,
+    /// The latest UI context schedules the first poll and wakes the app when a dialog completes.
+    ui_context: Option<egui::Context>,
 }
 
 /// What to do with the result of a command run in the background.
@@ -560,6 +652,8 @@ impl FigApp {
             windows: windows::Windows::default(),
             window_requests: Vec::new(),
             waiting: Vec::new(),
+            pending_dialog: None,
+            ui_context: None,
         }
     }
 
@@ -640,6 +734,19 @@ impl FigApp {
         }
     }
 
+    /// Leaving Design ends a pen path as Escape does and goes back to Move: Prototype and Inspect
+    /// don't draw (#307). Checked as the frame starts (the control channel) and after the panels
+    /// and shortcuts (the mode switcher, the tabs, Shift+E/Shift+D), before the canvas sees more.
+    fn end_pen_outside_design(&mut self) {
+        if self.ui.right_tab == self.ui.last_right_tab {
+            return;
+        }
+        self.ui.last_right_tab = self.ui.right_tab;
+        if self.ui.right_tab != RightTab::Design && self.session.tool.tool == figcraft_engine::tools::ToolId::Pen {
+            self.run("tool.set", json!({"tool": "move"}));
+        }
+    }
+
     /// Once a frame, after the panels: a preview nothing asked for this frame ends.
     fn end_unwanted_text_preview(&mut self, ctx: &egui::Context) {
         if !std::mem::take(&mut self.ui.text_preview_wanted) {
@@ -648,7 +755,7 @@ impl FigApp {
     }
 
     pub fn toast(&mut self, msg: impl Into<String>) {
-        self.ui.toast = Some((msg.into(), None));
+        self.ui.toast = Some((msg.into(), ToastClock::Raised));
     }
 
     /// Say that `n` documents left unsaved by a crash were opened again from recovery copies.
@@ -820,12 +927,12 @@ impl FigApp {
 
     pub fn save_as_dialog(&mut self) {
         let name = self.session.doc().map(|d| d.name.clone()).unwrap_or_else(|_| "Untitled".into());
-        if let Some(p) = self.services.pick_save(i18n::tr("Save as"), &format!("{name}.figcraft"), &["figcraft"]) {
+        self.pick_save(i18n::tr("Save as"), &format!("{name}.figcraft"), &["figcraft"], |app, p| {
             let ps = p.to_string_lossy().to_string();
-            if self.run("file.saveAs", json!({"path": ps})).is_some() {
-                self.toast(i18n::trf("Saved {name}", &[("name", &p.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default())]));
+            if app.run("file.saveAs", json!({"path": ps})).is_some() {
+                app.toast(i18n::trf("Saved {name}", &[("name", &p.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default())]));
             }
-        }
+        });
     }
 
     pub fn save(&mut self) {
@@ -841,14 +948,18 @@ impl FigApp {
     }
 
     pub fn open_dialog(&mut self) {
-        if let Some(p) =
-            self.services.pick_open(i18n::tr("Open"), &["figcraft", "fig", "json", "svg", "png", "jpg", "jpeg", "webp", "gif", "tif", "tiff"])
-        {
-            let ps = p.to_string_lossy().to_string();
-            if self.run("file.open", json!({"path": ps})).is_some() {
-                self.ui.home = false;
-            }
-        }
+        let exts = ["figcraft", "fig", "json", "svg", "png", "jpg", "jpeg", "webp", "gif", "tif", "tiff"];
+        // Opening needs no file in front: it goes ahead even if that file closed meanwhile.
+        self.start_dialog(
+            |services| services.pick_open(i18n::tr("Open"), &exts),
+            false,
+            |app, p| {
+                let ps = p.to_string_lossy().to_string();
+                if app.run("file.open", json!({"path": ps})).is_some() {
+                    app.ui.home = false;
+                }
+            },
+        );
     }
 
     pub fn import_dialog(&mut self, place: bool) {
@@ -857,9 +968,78 @@ impl FigApp {
         } else {
             &["svg", "png", "jpg", "jpeg", "webp", "gif", "tif", "tiff", "figcraft", "fig"]
         };
-        if let Some(p) = self.services.pick_open(if place { i18n::tr("Place image") } else { i18n::tr("Import") }, exts) {
+        let title = if place { i18n::tr("Place image") } else { i18n::tr("Import") };
+        self.pick_open(title, exts, move |app, p| {
             let ps = p.to_string_lossy().to_string();
-            self.run("file.import", json!({"path": ps}));
+            app.run("file.import", json!({"path": ps}));
+        });
+    }
+
+    /// Pick a file to open. `done` runs with the file in front now back in front (and not at all
+    /// if that file closed meanwhile).
+    pub fn pick_open(&mut self, title: &str, exts: &[&str], done: impl FnOnce(&mut FigApp, PathBuf) + 'static) {
+        self.start_dialog(|services| services.pick_open(title, exts), true, done);
+    }
+
+    /// Pick where to save; `done` runs as [`FigApp::pick_open`]'s does.
+    pub fn pick_save(&mut self, title: &str, name: &str, exts: &[&str], done: impl FnOnce(&mut FigApp, PathBuf) + 'static) {
+        self.start_dialog(|services| services.pick_save(title, name, exts), true, done);
+    }
+
+    /// Pick a folder; `done` runs as [`FigApp::pick_open`]'s does.
+    pub fn pick_folder(&mut self, title: &str, done: impl FnOnce(&mut FigApp, PathBuf) + 'static) {
+        self.start_dialog(|services| services.pick_folder(title), true, done);
+    }
+
+    /// Open a native dialog from the window drawing now, for the file in front (`pin`).
+    fn start_dialog(&mut self, start: impl FnOnce(&mut dyn Services) -> DialogFuture, pin: bool, done: impl FnOnce(&mut FigApp, PathBuf) + 'static) {
+        if self.pending_dialog.is_some() {
+            return;
+        }
+        let doc = if pin { self.session.ds().ok().filter(|d| self.shows(d.uid)).map(|d| d.uid) } else { None };
+        let future = start(self.services.as_mut());
+        self.pending_dialog = Some(PendingDialog { future, path: None, done: Box::new(done), doc, window: self.windows.current });
+        if let Some(ctx) = &self.ui_context {
+            ctx.request_repaint();
+        }
+    }
+
+    /// Once the dialog has a path, its continuation runs in the window that holds its file, with
+    /// that file in front; then the tab in front before comes back (unless the dialog opened a file).
+    fn poll_dialog(&mut self, ctx: &egui::Context) {
+        let Some(d) = &mut self.pending_dialog else { return };
+        if d.path.is_none() {
+            let waker = Waker::from(Arc::new(RepaintWaker(ctx.clone())));
+            let Poll::Ready(path) = d.future.as_mut().poll(&mut TaskContext::from_waker(&waker)) else { return };
+            d.path = path;
+        }
+        let (doc, origin, picked) = (d.doc, d.window, d.path.is_some());
+        let index = doc.map(|u| self.session.docs.iter().position(|ds| ds.uid == u));
+        // Cancelled, or its file closed meanwhile.
+        if !picked || index == Some(None) {
+            self.pending_dialog = None;
+            return;
+        }
+        let window = match doc {
+            Some(u) => self.windows.of(u),
+            None if self.windows.exists(origin) => origin,
+            None => 0,
+        };
+        if window != self.windows.current {
+            ctx.request_repaint_of(windows::viewport(window));
+            return;
+        }
+        let Some(PendingDialog { path: Some(path), done, .. }) = self.pending_dialog.take() else { return };
+        let before = self.session.ds().ok().map(|d| d.uid);
+        if let Some(Some(i)) = index {
+            self.session.active = i;
+        }
+        done(self, path);
+        if doc.is_some()
+            && self.session.ds().ok().map(|d| d.uid) == doc
+            && let Some(i) = before.and_then(|u| self.session.docs.iter().position(|d| d.uid == u))
+        {
+            self.session.active = i;
         }
     }
 
@@ -902,6 +1082,9 @@ impl FigApp {
             self.language = Some(self.session.prefs.language.clone());
         }
         if !self.fonts_installed {
+            // Cmd/Ctrl+= / - / 0 zoom the canvas (view.zoomIn, view.zoomOut, view.zoom100): egui's
+            // own keyboard zoom would scale the whole interface on the same keys.
+            ctx.options_mut(|o| o.zoom_with_keyboard = false);
             theme::install_fonts(ctx, false, 0);
             self.fonts_installed = true;
         } else if figcraft_text::system_fonts_scanned() {
@@ -953,15 +1136,90 @@ impl FigApp {
         repaint_in(ctx, AUTOSAVE_SECS);
     }
 
+    /// With auto-save on, files that have a path are saved [`AUTO_SAVE_SECS`] after they last
+    /// changed (not during a gesture, a live preview or while a version is shown). The file is
+    /// encoded on a thread of its own, so a big one doesn't hold up the window, and written here.
+    fn auto_save_tick(&mut self, ctx: &egui::Context) {
+        let now = ctx.input(|i| i.time);
+        let mut failed = self.auto_save_done();
+        // The browser has no files to save to.
+        let on = !cfg!(target_arch = "wasm32") && self.session.prefs.auto_save;
+        let saving = &self.ui.auto_saving;
+        let due = |d: &&figcraft_engine::DocState| {
+            d.path.is_some() && d.branch_of.is_none() && d.preview.is_none() && d.is_dirty() && !saving.iter().any(|(uid, _)| *uid == d.uid)
+        };
+        let changes = if on { self.session.docs.iter().filter(due).map(|d| d.revision).reduce(u64::wrapping_add) } else { None };
+        match changes {
+            None => self.ui.auto_save_at = None,
+            Some(changes) => {
+                let at = match self.ui.auto_save_at {
+                    Some((at, c)) if c == changes && failed.is_none() => at,
+                    _ => now + if failed.is_some() { AUTO_SAVE_RETRY_SECS } else { AUTO_SAVE_SECS },
+                };
+                self.ui.auto_save_at = Some((at, changes));
+                if now < at || self.session.docs.iter().any(|d| d.interaction.is_some() || d.text_preview.is_some()) {
+                    // Due but busy: look again in a second.
+                    repaint_in(ctx, if now < at { at - now } else { 1.0 });
+                } else {
+                    self.ui.auto_save_at = None;
+                    let files: Vec<_> =
+                        self.session.docs.iter().filter(due).map(|d| (d.uid, figcraft_engine::cmd::file::FileSnapshot::of(d))).collect();
+                    for (uid, file) in files {
+                        let encode = move || {
+                            let bytes = file.encode();
+                            (file, bytes)
+                        };
+                        match std::thread::Builder::new().name("figcraft-save".into()).spawn(encode) {
+                            Ok(h) => self.ui.auto_saving.push((uid, h)),
+                            Err(e) => {
+                                failed.get_or_insert(e.to_string());
+                                self.ui.auto_save_at = Some((now + AUTO_SAVE_RETRY_SECS, changes));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if !self.ui.auto_saving.is_empty() {
+            // Look again shortly for the files being encoded.
+            repaint_in(ctx, 0.1);
+        }
+        if let Some(e) = failed {
+            self.toast(i18n::trf("Couldn't save automatically: {error}", &[("error", &e)]));
+        }
+    }
+
+    /// Write the files whose auto-save encoding finished; the first error, if one failed.
+    fn auto_save_done(&mut self) -> Option<String> {
+        if self.ui.auto_saving.is_empty() {
+            return None;
+        }
+        let mut failed = None;
+        let done: Vec<_> = self.ui.auto_saving.extract_if(.., |(_, h)| h.is_finished()).collect();
+        for (_, h) in done {
+            let saved = match h.join() {
+                Ok((snapshot, Ok(bytes))) => snapshot.save(&mut self.session, &bytes).map(|_| ()).map_err(|e| e.to_string()),
+                Ok((_, Err(e))) => Err(e.to_string()),
+                Err(_) => Err("the file couldn't be encoded".to_string()),
+            };
+            if let Err(e) = saved {
+                failed.get_or_insert(e);
+            }
+        }
+        failed
+    }
+
     /// Draw the whole UI: the main window (the other windows draw themselves).
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         #[cfg(not(target_arch = "wasm32"))]
         let t0 = std::time::Instant::now();
         let ctx = ui.ctx().clone();
+        self.ui_context = Some(ctx.clone());
         self.frame_stats.record(&ctx);
         let first = !self.fonts_installed;
         self.logic(&ctx);
         self.autosave_tick(&ctx);
+        self.auto_save_tick(&ctx);
         if first {
             // New fonts apply from the next frame; draw nothing until then.
             ctx.request_repaint();
@@ -1001,6 +1259,8 @@ impl FigApp {
         // even if it lets go during the frame (Enter commits it), or as it began (egui drops the
         // focus on Escape before the frame, which cancels the field's edit and nothing else).
         let typing = std::mem::take(&mut self.field_focus) || a11y::field_focused(&ctx);
+        // A dialog that closed acts first, in the window it was opened from.
+        self.poll_dialog(&ctx);
         // Control requests run first so their results reflect this frame.
         control::drain(self, &ctx);
         windows::requests(self, &ctx);
@@ -1016,6 +1276,7 @@ impl FigApp {
         widgets::set_nudge(&ctx, self.session.prefs.nudge_small, self.session.prefs.nudge_big);
         // The Inspect tab measures on hover without Alt.
         self.session.tool.redlines = self.ui.right_tab == RightTab::Inspect;
+        self.end_pen_outside_design();
         if self.ui.present.is_some() {
             present::show(self, ui);
             // What went wrong while presenting (a widget's plugin failing) shows over it.
@@ -1118,6 +1379,7 @@ impl FigApp {
         variable_ui::picker(self, &ctx);
         style_picker::show(self, &ctx);
         self.end_unwanted_text_preview(&ctx);
+        self.end_pen_outside_design();
         dialogs::show(self, &ctx);
         self.toast_ui(&ctx);
         // A rename started after the layers panel drew (Cmd/Ctrl+R, a double-click) opens its field
@@ -1135,16 +1397,32 @@ impl FigApp {
     }
 
     fn toast_ui(&mut self, ctx: &egui::Context) {
-        let Some((msg, shown)) = &mut self.ui.toast else { return };
+        let Some((msg, clock)) = &mut self.ui.toast else { return };
         let now = ctx.input(|i| i.time);
-        let left = TOAST_SECS - (now - *shown.get_or_insert(now));
+        // The clock starts on the frame after the one that first draws the toast: that frame's
+        // time was taken before whatever raised it ran (a file dialog, a long open), and would
+        // count that wait against it, so a failed open's message expired before it was seen.
+        let left = match *clock {
+            ToastClock::Raised => {
+                *clock = ToastClock::Drawn;
+                ctx.request_repaint();
+                TOAST_SECS
+            }
+            ToastClock::Drawn => {
+                *clock = ToastClock::Since(now);
+                TOAST_SECS
+            }
+            ToastClock::Since(t) => TOAST_SECS - (now - t),
+        };
         if left <= 0.0 {
             self.ui.toast = None;
             return;
         }
         let msg = msg.clone();
         // Nothing moves while it shows: the next frame it needs is the one that hides it.
-        repaint_in(ctx, left);
+        if matches!(clock, ToastClock::Since(_)) {
+            repaint_in(ctx, left);
+        }
         let screen = ctx.content_rect();
         egui::Area::new(egui::Id::new("toast"))
             .fixed_pos(egui::pos2(screen.center().x, screen.max.y - 96.0))
@@ -1213,6 +1491,9 @@ impl FigApp {
                     figcraft_render::Work::Partial { pixels } => json!({"kind": "partial", "pixels": pixels}),
                     figcraft_render::Work::Full => json!({"kind": "full"}),
                 }),
+                "quality": if self.canvas.tex_coarse { "preview" } else { "refined" },
+                "previewLatencyMs": self.canvas.preview_latency_ms,
+                "refineLatencyMs": self.canvas.refine_latency_ms,
             },
             "live": live::inspect(self),
             "window": self.windows.current,
@@ -1225,3 +1506,6 @@ impl FigApp {
         })
     }
 }
+
+#[cfg(test)]
+mod typography_scrub_tests;

@@ -31,19 +31,79 @@ fn request(app: &mut FigApp, method: &str, params: Value) -> Receiver<ControlRep
     rx
 }
 
-/// What eframe runs for the main window while it draws nothing: only the app's logic, no ui pass,
-/// with each window's state (`hidden`: minimized or occluded, e.g. on another Space).
-fn logic_only(ctx: &egui::Context, app: &mut FigApp, hidden: &[ViewportId]) {
+/// The desktop app's logic as eframe runs it for the main window, with each window's visibility
+/// (`hidden`: minimised or covered). While the main window is hidden too this is all that runs.
+fn logic(ctx: &egui::Context, app: &mut FigApp, hidden: &[ViewportId]) {
     let mut input = RawInput::default();
     for id in std::iter::once(ViewportId::ROOT).chain(app.windows.list.iter().map(|w| crate::windows::viewport(w.id))) {
-        let off = hidden.contains(&id);
-        input.viewports.insert(id, ViewportInfo { minimized: Some(false), occluded: Some(off), ..Default::default() });
+        input.viewports.insert(id, ViewportInfo { minimized: Some(false), occluded: Some(hidden.contains(&id)), ..Default::default() });
     }
-    let _ = ctx.run_logic(&input, |ctx| crate::control::serve_hidden(app, ctx));
+    let _ = ctx.run_logic(&input, |ctx| crate::control::drain_hidden(app, ctx));
 }
 
 fn names(app: &FigApp) -> Vec<String> {
     app.session.docs.iter().map(|d| d.doc.name.clone()).collect()
+}
+
+fn two_windows() -> (egui::Context, FigApp, u64) {
+    let mut s = Session::empty();
+    for n in ["A", "B"] {
+        s.execute("file.new", &json!({"name": n})).unwrap();
+    }
+    let ctx = egui::Context::default();
+    ctx.set_embed_viewports(false);
+    let mut app = FigApp::new(s, Box::new(NoServices));
+    frame(&ctx, &mut app, false);
+    let w = crate::control::handle(&mut app, &ctx, "window.new", &json!({"index": 0})).unwrap()["window"].as_u64().unwrap();
+    frame(&ctx, &mut app, false);
+    (ctx, app, w)
+}
+
+#[test]
+fn hidden_windows_answer_ui_inspection_without_a_frame() {
+    let (ctx, mut app, w) = two_windows();
+    let other = crate::windows::viewport(w);
+    for target in [0, w] {
+        let ui = request(&mut app, "ui.inspect", json!({"window": target}));
+        logic(&ctx, &mut app, &[ViewportId::ROOT, other]);
+        let state = ui.try_recv().expect("ui.inspect answers without a frame").result.unwrap();
+        assert_eq!(state["window"], json!(target), "inspect the requested window");
+        assert_eq!(app.windows.current, 0);
+        assert_eq!(app.session.ds().unwrap().doc.name, "B", "restore the main window's document");
+        assert!(app.control_queue.is_empty());
+    }
+}
+
+#[test]
+fn hidden_windows_refuse_screenshots_without_waiting_for_a_frame() {
+    let (ctx, mut app, w) = two_windows();
+    let other = crate::windows::viewport(w);
+    for target in [0, w] {
+        let shot = request(&mut app, "ui.screenshot", json!({"window": target, "path": "/tmp/figcraft-hidden-not-written.png"}));
+        logic(&ctx, &mut app, &[ViewportId::ROOT, other]);
+        let error = shot.try_recv().expect("screenshot is refused immediately").result.unwrap_err();
+        assert!(error.contains("visible"), "{error}");
+        assert!(app.control_queue.is_empty());
+    }
+}
+
+#[test]
+fn hidden_windows_buffer_raw_input_for_only_their_own_next_frame() {
+    let (ctx, mut app, w) = two_windows();
+    let other = crate::windows::viewport(w);
+    for target in [0, w] {
+        let input = request(&mut app, "ui.input", json!({"window": target, "events": [{"text": "synthetic"}]}));
+        logic(&ctx, &mut app, &[ViewportId::ROOT, other]);
+        assert!(input.try_recv().expect("raw input is accepted without a frame").result.is_ok());
+        let not_target = if target == 0 { other } else { ViewportId::ROOT };
+        assert!(crate::windows::take_input(&mut app, not_target).is_empty());
+        let events = crate::windows::take_input(&mut app, crate::windows::viewport(target));
+        assert!(matches!(events.as_slice(), [egui::Event::Text(text)] if text == "synthetic"));
+        assert!(crate::windows::take_input(&mut app, crate::windows::viewport(target)).is_empty());
+        assert!(app.session.docs.iter().all(|d| !d.is_dirty()), "input is buffered, not applied yet");
+        assert_eq!(app.windows.current, 0);
+        assert!(app.control_queue.is_empty());
+    }
 }
 
 #[test]
@@ -87,7 +147,7 @@ fn windows_hold_tabs_and_close_with_their_files() {
 }
 
 #[test]
-fn windows_that_draw_nothing_still_answer_control_requests() {
+fn another_hidden_window_answers_requests_that_need_no_frame_in_its_own_file() {
     let mut s = Session::empty();
     for n in ["A", "B"] {
         s.execute("file.new", &json!({"name": n})).unwrap();
@@ -99,42 +159,31 @@ fn windows_that_draw_nothing_still_answer_control_requests() {
     let w = crate::control::handle(&mut app, &ctx, "window.new", &json!({"index": 0})).unwrap()["window"].as_u64().unwrap();
     frame(&ctx, &mut app, false);
     let other = crate::windows::viewport(w);
+    let rect = |size: u32| json!({"window": w, "command": "shape.rectangle", "params": {"x": 0, "y": 0, "width": size, "height": size}});
+    let dirty = |app: &FigApp, name: &str| app.session.docs.iter().find(|d| d.doc.name == name).unwrap().is_dirty();
 
-    // The main window is on another Space: it still lists the windows and runs commands, in its
-    // own file, without a frame.
-    let list = request(&mut app, "window.list", json!({"window": 0}));
-    let rect = request(
-        &mut app,
-        "engine.execute",
-        json!({"window": 0, "command": "shape.rectangle", "params": {"x": 0, "y": 0, "width": 10, "height": 10}}),
-    );
-    logic_only(&ctx, &mut app, &[ViewportId::ROOT, other]);
-    assert_eq!(list.try_recv().expect("window.list answered").result.unwrap()[1]["id"], json!(w));
-    assert!(rect.try_recv().expect("engine.execute answered").result.is_ok());
-    let b = app.session.docs.iter().find(|d| d.doc.name == "B").unwrap();
-    assert!(b.is_dirty(), "the rectangle went into the main window's file");
-
-    // Another window behind others works in its own file; the main window gets its file back.
-    let other_rect =
-        request(&mut app, "engine.execute", json!({"window": w, "command": "shape.rectangle", "params": {"x": 0, "y": 0, "width": 5, "height": 5}}));
-    logic_only(&ctx, &mut app, &[other]);
-    assert!(other_rect.try_recv().expect("the other window answered").result.is_ok());
-    assert!(app.session.docs.iter().find(|d| d.doc.name == "A").unwrap().is_dirty(), "its own file changed");
+    // The main window is on screen, the other one covered: the request to it is answered in its
+    // file (A), and the main window keeps showing its own (B).
+    let edit = request(&mut app, "engine.execute", rect(10));
+    logic(&ctx, &mut app, &[other]);
+    assert!(edit.try_recv().expect("answered without the other window's frame").result.is_ok());
+    assert!(dirty(&app, "A") && !dirty(&app, "B"), "in the other window's file");
     assert_eq!(app.session.ds().unwrap().doc.name, "B");
     assert_eq!(app.windows.current, 0);
 
-    // A window screenshot needs a frame: refused at once instead of after the timeout.
-    let shot = request(&mut app, "ui.screenshot", json!({"window": w, "path": "/tmp/never.png"}));
-    logic_only(&ctx, &mut app, &[other]);
-    assert!(shot.try_recv().expect("answered at once").result.unwrap_err().contains("visible"));
+    // Both hidden: still answered, and inspection sees the other window's file.
+    let inspect = request(&mut app, "document.inspect", json!({"window": w, "depth": 0}));
+    logic(&ctx, &mut app, &[ViewportId::ROOT, other]);
+    assert_eq!(inspect.try_recv().expect("answered").result.unwrap()["name"], json!("A"));
+    assert_eq!(app.session.ds().unwrap().doc.name, "B");
 
-    // A window that draws keeps its requests for its frame.
-    let later = request(&mut app, "window.list", json!({"window": 0}));
-    logic_only(&ctx, &mut app, &[other]);
-    assert!(later.try_recv().is_err(), "waits for the main window's frame");
-    assert_eq!(app.control_queue.len(), 1);
-    frame(&ctx, &mut app, false);
-    assert!(later.try_recv().is_ok(), "answered in the frame");
+    // UI inspection also answers without a frame; an unknown window is an error at once.
+    let ui = request(&mut app, "ui.inspect", json!({"window": w}));
+    let unknown = request(&mut app, "window.list", json!({"window": 99}));
+    logic(&ctx, &mut app, &[ViewportId::ROOT, other]);
+    assert_eq!(ui.try_recv().expect("UI inspection answered").result.unwrap()["window"], json!(w));
+    assert!(unknown.try_recv().expect("answered").result.unwrap_err().contains("no window 99"));
+    assert!(app.control_queue.is_empty());
 }
 
 #[test]
@@ -157,8 +206,8 @@ fn a_request_for_a_window_on_screen_wakes_it_while_the_main_window_is_hidden() {
 
     // Only the main window's logic runs while it is hidden: the request for the other window,
     // which is on screen, waits for that window's frame, and that window is asked to draw it.
-    let ui = request(&mut app, "window.list", json!({"window": w}));
-    logic_only(&ctx, &mut app, &[ViewportId::ROOT]);
+    let ui = request(&mut app, "ui.inspect", json!({"window": w}));
+    logic(&ctx, &mut app, &[ViewportId::ROOT]);
     assert!(ui.try_recv().is_err(), "answered in the other window's frame");
     assert!(woken.lock().unwrap().contains(&other), "the other window is asked to draw: {:?}", woken.lock().unwrap());
 }

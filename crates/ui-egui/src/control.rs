@@ -70,47 +70,6 @@ fn pending(ctx: &Context) -> std::sync::Arc<std::sync::Mutex<Vec<PendingShot>>> 
     ctx.data_mut(|d| d.get_temp_mut_or_insert_with(egui::Id::new("pending_shots"), || std::sync::Arc::new(std::sync::Mutex::new(Vec::new()))).clone())
 }
 
-/// Whether window `id` draws no frames now: minimized, or occluded (behind other windows, or on
-/// another Space, where macOS draws nothing). eframe then runs no ui pass for it, only the main
-/// window's `App::logic`.
-pub fn hidden(ctx: &Context, id: u64) -> bool {
-    ctx.input(|i| i.raw.viewports.get(&crate::windows::viewport(id)).and_then(egui::ViewportInfo::visible)) == Some(false)
-}
-
-/// Answer the queued requests for windows that draw no frames now ([`hidden`]) without a frame,
-/// with the window's state swapped in: a window on another Space or behind others still answers.
-/// The desktop app calls this from the main window's `App::logic`, which eframe runs even while
-/// that window draws nothing. Requests for windows that draw stay queued for their frame
-/// ([`drain`]); a window screenshot needs a frame and is refused at once.
-pub fn serve_hidden(app: &mut FigApp, ctx: &Context) {
-    let reqs = std::mem::take(&mut app.control_queue);
-    for r in reqs {
-        if r.is_cancelled() {
-            continue;
-        }
-        let target = r.params.get("window").and_then(Value::as_u64).unwrap_or(app.windows.focused);
-        if app.windows.exists(target) && !hidden(ctx, target) {
-            // Another window on screen draws only when asked: while the main window is hidden no
-            // frame of it does that ([`drain`]), so ask here.
-            if target != app.windows.current {
-                ctx.request_repaint_of(crate::windows::viewport(target));
-            }
-            app.control_queue.push(r);
-            continue;
-        }
-        let res = if !app.windows.exists(target) {
-            Err(format!("no window {target}"))
-        } else if r.method == "ui.screenshot" {
-            Err(format!(
-                "window {target} draws nothing now (minimized, behind other windows or on another Space): a window screenshot needs it visible"
-            ))
-        } else {
-            crate::windows::as_window(app, target, |app| handle(app, ctx, &r.method, &r.params)).unwrap_or_else(|| Err(format!("no window {target}")))
-        };
-        let _ = r.reply.send(ControlReply { id: r.id, result: res });
-    }
-}
-
 pub fn drain(app: &mut FigApp, ctx: &Context) {
     let now = ctx.input(|i| i.time);
     let list = pending(ctx);
@@ -139,8 +98,7 @@ pub fn drain(app: &mut FigApp, ctx: &Context) {
         if r.is_cancelled() {
             continue;
         }
-        // Requests for another window wait for its frame; one that draws nothing now is answered
-        // from the main window's logic ([`serve_hidden`]).
+        // A hidden window is served from the main window's logic, not its own frame.
         let target = r.params.get("window").and_then(Value::as_u64).unwrap_or(app.windows.focused);
         if target != app.windows.current {
             if app.windows.exists(target) {
@@ -176,6 +134,55 @@ pub fn drain(app: &mut FigApp, ctx: &Context) {
     });
     if !list.is_empty() {
         ctx.request_repaint();
+    }
+}
+
+/// Whether window `id` draws no frames now: minimised, or covered by other windows (on macOS also
+/// on another Space).
+fn hidden(ctx: &Context, id: u64) -> bool {
+    ctx.input(|i| i.raw.viewports.get(&crate::windows::viewport(id)).and_then(egui::ViewportInfo::visible)) == Some(false)
+}
+
+/// A hidden window (minimised, or covered by other windows) draws no frames, but the desktop app's
+/// `logic` still runs, for the main window even while every window is hidden: it answers the
+/// requests for any hidden window in that window's state, including `ui.inspect`. Only window
+/// screenshots need a frame and are refused at once; raw `ui.input` events wait in that window's
+/// input buffer until its next frame. Another window on screen is asked to draw, which the main
+/// window's frame would do but doesn't while it is hidden. An unknown window is an error at once.
+pub fn drain_hidden(app: &mut FigApp, ctx: &Context) {
+    for r in std::mem::take(&mut app.control_queue) {
+        if r.is_cancelled() {
+            continue;
+        }
+        let target = r.params.get("window").and_then(Value::as_u64).unwrap_or(app.windows.focused);
+        if !app.windows.exists(target) {
+            let _ = r.reply.send(ControlReply { id: r.id, result: Err(format!("no window {target}")) });
+            continue;
+        }
+        if !hidden(ctx, target) {
+            // Another window on screen draws only when asked: while the main window is hidden no
+            // frame of it does that (`drain`), so ask here.
+            if target != app.windows.current {
+                ctx.request_repaint_of(crate::windows::viewport(target));
+            }
+            app.control_queue.push(r);
+            continue;
+        }
+        if r.method == "ui.screenshot" {
+            let error = format!(
+                "window {target} draws nothing now (minimized, behind other windows or on another Space): a window screenshot needs it visible"
+            );
+            let _ = r.reply.send(ControlReply { id: r.id, result: Err(error) });
+            continue;
+        }
+        // Outside a frame, so outside the frame's guard: within the window's swap, a panic still
+        // ends in recovery copies and leaves every window its own state.
+        let res = crate::windows::as_window(app, target, |app| {
+            let mut res = Err("internal error".to_string());
+            crate::windows::guard(app, ctx, |app| res = handle(app, ctx, &r.method, &r.params));
+            res
+        });
+        let _ = r.reply.send(ControlReply { id: r.id, result: res.unwrap_or_else(|| Err(format!("no window {target}"))) });
     }
 }
 
@@ -470,7 +477,14 @@ pub fn handle(app: &mut FigApp, ctx: &Context, method: &str, p: &Value) -> Resul
             // Comment thread popover: an id opens it, null closes it.
             if let Some(v) = p.get("commentOpen") {
                 match v.as_u64() {
-                    Some(id) => app.ui.comments.show(id),
+                    Some(id) => {
+                        // Pins are drawn for the current page only: reveal the thread's page first.
+                        let page = app.session.doc().ok().and_then(|d| d.comment(id)).map(|c| c.page);
+                        if let Some(page) = page.filter(|p| app.session.page().is_ok_and(|cur| cur != *p)) {
+                            app.session.execute("page.select", &json!({"id": page.0})).map_err(|e| e.to_string())?;
+                        }
+                        app.ui.comments.show(id);
+                    }
                     None => app.ui.comments.close(),
                 }
             }

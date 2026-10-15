@@ -18,7 +18,8 @@ reply:    {"id": 1, "ok": true, "result": ...}
 
 Requests are queued and run on the UI thread at the start of the next frame, so replies reflect the
 real UI state. A request that the UI doesn't answer within 60 s gets a timeout error. A line that is
-not JSON gets `{"id": null, "ok": false, "error": "bad JSON: …"}`. The implementation is in
+not JSON gets `{"id": null, "ok": false, "error": "bad JSON: …"}` and ends the connection (so an
+HTTP request a web page makes the browser send here never runs). The implementation is in
 `crates/ui-egui/src/control.rs` (methods) and `apps/figcraft/src/control_server.rs` (socket).
 
 A request line is limited to **32 MiB before the newline**, including whitespace. The reader stops
@@ -35,6 +36,14 @@ instead of dispatching the new request. These limits apply to the opt-in loopbac
 requests still queued after the UI timeout are discarded, including requests deferred to a hidden
 window. A command already running is not interrupted.
 
+A minimised or covered window (the main one or another, see Windows below) draws no frames, but
+still answers control requests in its own state, including `ui.inspect`. Window screenshots
+(`ui.screenshot`) need a visible frame and fail immediately instead of waiting for the timeout.
+Raw `ui.input` events are accepted into that window's buffer for its next frame. No frame is drawn
+by these calls, so canvas geometry and focus information can reflect the last drawn frame.
+Requests to visible windows still wait for their frame. Hidden-window handlers retain the
+upstream panic/recovery guard.
+
 Coordinates are page units, y down. `x`/`y` in `node.set`/`node.create` are relative to the parent
 frame (groups have no coordinate space of their own).
 
@@ -43,10 +52,8 @@ an optional `window` (an id from `window.list`; `0` is the main window) and then
 window, with its tabs, panels and canvas: `engine.execute` acts on the file it shows,
 `ui.screenshot` captures it, `ui.input` reaches it. Without `window`, a request goes to the window
 last in front (the one the user clicked last, or the last `window.new` / `window.focus`). An
-unknown id is an error. A window that draws no frames (minimized, or occluded: behind other
-windows or on another Space) still answers, without a frame, from the main window's logic, which
-runs while every window is hidden; only `ui.screenshot` needs the window visible and is refused at
-once, and `ui.input` events wait for its next frame.
+unknown id is an error. Hidden-window requests run from the main window's logic, which runs even
+while every window is hidden.
 
 ## Methods
 
@@ -63,6 +70,15 @@ JSON or the gradient shorthand `{"type":"linearGradient","stops":["#hex","#hex"]
 {"id":1,"ok":true,"result":{"id":2}}
 {"id":2,"method":"engine.execute","params":{"command":"node.set","params":{"ids":[2],"props":{"fill":"#FF6B6B","cornerRadius":8}}}}
 {"id":3,"method":"engine.execute","params":{"command":"command.batch","params":{"label":"Tidy","commands":[{"command":"align.left","params":{"ids":[2,3]}},{"command":"distribute.vertical","params":{"ids":[2,3]}}]}}}
+```
+
+Inside `command.batch`, `{"$step": n}` in a step's params stands for the `id` in step `n`'s result
+(zero-based; `{"$step": n, "field": "…"}` for another field; any object with a `$step` key is read
+as one, and a nested `command.batch` step keeps its own references to its own steps), so one batch
+can create a frame and fill it:
+
+```json
+{"id":4,"method":"engine.execute","params":{"command":"command.batch","params":{"commands":[{"command":"node.create","params":{"type":"frame","width":200,"height":100}},{"command":"node.create","params":{"type":"rectangle","parent":{"$step":0},"width":20,"height":20}}]}}}
 ```
 
 ### `engine.commands {}`
@@ -98,7 +114,12 @@ ellipse, its arc handles `arcHandles`, for a selected rectangle, frame, polygon 
 an idle window draws none) with the most frequent repaint requests behind them (`repaintCauses`:
 `[{at: "file:line", count}]`, every request made in the frame before each one, delayed ones such as
 the autosave deadline included; egui's `context.rs` begin-pass line means input events) and what the last canvas render had to do (`canvas.renderWork`: `full`, `partial` with
-the `pixels` re-rendered after a pan or an edit, or `reused`). While a prototype plays, `presenter`
+the `pixels` re-rendered after a pan or an edit, or `reused`), whether the canvas shows a coarse
+zoom preview or the refined image (`canvas.quality`: `preview` or `refined`) and the time from
+asking for a render to its preview and its refined image being handed to egui as the canvas
+texture (`canvas.previewLatencyMs`, `canvas.refineLatencyMs`, on a monotonic clock, rendering
+included in the browser too; the GPU upload and presenting the frame come after; `null` until
+there was one). While a prototype plays, `presenter`
 (full window) and `preview` (the preview pane) hold the player's state: the `current` frame and its
 `name`, `start`, `history`, open `overlays`, how many delayed mouse triggers are `waiting`, the screen's `scroll` offset and `scrollRange`, the
 `device` (and whether it is turned to `landscape`, its `deviceColor`) and the `viewport` of the frame
