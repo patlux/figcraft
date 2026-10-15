@@ -445,7 +445,7 @@ pub fn draw_node(ctx: &Ctx, pix: &mut Pixmap, id: NodeId, parent_xf: Affine, dep
                     && let Some(sh) = &shape
                     && let Some(inner) = shadow::inner_shadow(sh, lw, lh, lxf, ctx.scale, s)
                 {
-                    l.draw_pixmap(0, 0, inner.as_ref(), &PixmapPaint::default(), Transform::identity(), None);
+                    composite(l, (0, 0), &inner, 1.0, s.blend);
                 }
             }
         };
@@ -465,7 +465,7 @@ pub fn draw_node(ctx: &Ctx, pix: &mut Pixmap, id: NodeId, parent_xf: Affine, dep
             if let EffectKind::InnerShadow(s) = &e.kind
                 && let Some(sh) = shadow::inner_shadow_of(&cover, ctx.scale, s)
             {
-                layer.draw_pixmap(0, 0, sh.as_ref(), &PixmapPaint::default(), Transform::identity(), None);
+                composite(&mut layer, (0, 0), &sh, 1.0, s.blend);
             }
         }
     }
