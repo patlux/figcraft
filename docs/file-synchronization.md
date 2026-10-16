@@ -1,9 +1,10 @@
 # Local file synchronization
 
-Status: save-conflict protection implemented in the local task branch (2026-10-16).
-Guarded control targets are implemented in the local source. The paired bridge validates and pins them.
-Controlled generator adoption and automatic external refresh are implemented in source.
+Status: synchronization source is on local `main`, together with upstream `d1d8c3f` (2026-10-16).
+The local source supports guarded control targets. The paired bridge validates and pins them.
+The source also supports controlled generator adoption and automatic external refresh.
 A bounded macOS native smoke test now verifies refresh, adoption and conflict retention with window screenshots.
+
 Installation and the configured Pi-to-bridge-to-app integration test remain pending.
 No package or running installation changes as part of this source work.
 
@@ -81,9 +82,11 @@ The polling clock uses a monotonic wall clock: egui's UI time stops while hidden
 With many tabs, each tab waits for its next turn.
 
 A changed native `.figcraft` file refreshes only when the document is clean and noninteractive.
-Pending raw input, UI fields and dialogs defer replacement. Local edits produce a conflict.
+Pending raw input, UI fields, dialogs and queued file imports defer replacement. Local edits produce a conflict.
+Queued imports in another pane also block replacement, including the main pane during a hidden-window call.
 Missing, invalid, unreadable and path-changed files remain untouched.
 Collaboration and open branch tabs defer replacement too.
+
 The explicit `file.refresh` command (MCP `refresh_file`) applies the same document checks.
 
 Refresh retains a complete prior recovery file and one undo step.
@@ -96,7 +99,10 @@ The external file is never rewritten during refresh. No viewport receives a focu
 Two Engine refresh regressions failed before implementation and now pass.
 A hidden-window test checks clean refresh, local conflict and deferred-input refusal without a focus change.
 Its first implementation exposed a stopped UI-clock bug. The monotonic-clock fix makes subsequent hidden polls run.
-Twelve window tests pass. These are synthetic dispatcher tests, not native runtime evidence.
+
+The upstream merge adds a regression for queued imports in the main pane or another pane.
+It fails before the replacement guard and passes after it. All 13 window tests pass.
+These are synthetic dispatcher tests, not native runtime evidence.
 
 Current limits: polling and changed-file parsing run synchronously on the session thread.
 The file-size bound limits bytes, not latency. Large documents can stall the UI.
@@ -150,10 +156,11 @@ These are synthetic dispatcher and transport tests, not a live app demonstration
 - Five Engine tests cover normal save, background save, missing/corrupt originals, Save As and repeated saves after open.
 - Eight format tests cover exact-byte baselines, competing threads, separate processes, busy locks, path aliases and invalid lock files.
 - A CLI regression checks native and JSON output refusal, preservation of existing bytes and explicit input/output updates.
-- Workspace after selected upstream target guards: 2,400 passed, one failed, eight ignored.
+- Workspace after the upstream merge: 2,428 passed, zero failed, eight ignored.
+- The earlier synchronization branch recorded 2,400 passed, one failed and eight ignored.
 - Ten layer/document-index regressions pass. Seven failed before the selected upstream #675/#608 changes.
 - The [requirement/upstream audit](agent-workflow-audit.md) records selections, exclusions and remaining release work.
-- The existing Contributors-table test still fails at 648 pt required versus 640 pt available. It was not changed.
+- Upstream resolves the previous Contributors-table failure (648 pt required versus 640 pt available). The test now passes.
 - Workspace clippy with warnings denied, formatting, layering and asset checks pass.
 - WASM checking stops before project code because the local toolchain lacks `wasm32-unknown-unknown` (`core`/`std`).
 - A timed-out workspace build left invalid incremental objects. Workspace-scoped `mbx clean` followed by rebuilding resolved the linker errors.
@@ -174,7 +181,8 @@ Then it restores the window, adopts a separate candidate and introduces a local/
 It checks the receipt and saved state. A refused conflicting save must leave the external bytes unchanged.
 Three window captures must contain the expected canvas colors. The native window needs enough visible space to draw those captures.
 
-The reviewed run on 2026-10-16 passed in `/tmp/figcraft-native-sync-smoke-20261016-g`:
+The merged-source run on 2026-10-16 passed before the merge commit in `/tmp/figcraft-main-upstream-smoke-20261016`.
+Its three reviewed images are 2400×1600. The run records 231 UI frames:
 
 - `hiddenRefresh` and `noFramesDuringHiddenRefresh` are true.
 - `adoption` and `conflictPreserved` are true. All three screenshot pixel checks pass.
@@ -186,6 +194,9 @@ The renderer completes asynchronously. An early capture showed the old canvas un
 Later captures showed the updated canvas without reopening. The example waits two seconds before capture and checks the captured pixels.
 An intermediate run timed out before the second screenshot. Another produced a narrow window that was unsuitable for visual review.
 The final example fixes its window size and refuses undersized captures. It does not change the host window manager.
+
+Earlier committed-source evidence remains in `/tmp/figcraft-native-sync-smoke-20261016-final`.
+Workspace, clippy and WASM logs for the merge use the `/tmp/figcraft-main-merge-` prefix.
 
 This proves native behavior for the synthetic fixture, not large-file latency or Figma parity.
 The example calls Engine commands directly. It does not test the installed app, bridge relay or packaged CLI together.

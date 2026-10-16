@@ -235,6 +235,58 @@ fn external_poll_refreshes_hidden_tab_and_retains_dirty_conflict_without_focus_c
 }
 
 #[test]
+fn pending_file_drops_defer_external_refresh_in_every_window() {
+    let (ctx, mut app, w) = two_windows();
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let dir = std::env::temp_dir().join(format!("figcraft-pending-refresh-{}-{stamp}", std::process::id()));
+    std::fs::create_dir(&dir).unwrap();
+    let path = dir.join("original.figcraft");
+    let saved = request(&mut app, "engine.execute", json!({"window": w, "command": "file.save", "params": {"path": path}}));
+    let hidden = [ViewportId::ROOT, crate::windows::viewport(w)];
+    logic(&ctx, &mut app, &hidden);
+    saved.try_recv().unwrap().result.unwrap();
+    let mut external = Session::empty();
+    external.execute("file.open", &json!({"path": path})).unwrap();
+    external.execute("file.rename", &json!({"name": "External while drop waits"})).unwrap();
+    external.execute("file.save", &json!({})).unwrap();
+    let disk = std::fs::read(&path).unwrap();
+    let index = app.session.docs.iter().position(|d| d.doc.name == "A").unwrap();
+    let focused = app.windows.focused;
+    for queued_window in [0, w] {
+        crate::windows::as_window(&mut app, queued_window, |app| {
+            let ds = app.session.ds().unwrap();
+            app.ui.pending_opens.push(crate::pending_open::PendingOpen {
+                label: "Pending synthetic import".into(),
+                params: json!({}),
+                command: "file.import",
+                target: Some(crate::pending_open::ImportTarget { uid: ds.uid, page: ds.page, name: ds.doc.name.clone() }),
+            });
+        });
+        app.external_poll_cursor = index;
+        app.next_external_poll = None;
+        let _ = ctx.run_logic(&RawInput::default(), |ctx| app.external_file_tick(ctx));
+        assert_eq!(app.session.docs[index].doc.name, "A", "pending drop in window {queued_window} blocks replacement");
+        assert_eq!(app.session.docs[index].external_file_state.as_ref().unwrap()["state"], "deferred");
+        for command in ["file.refresh", "file.adopt"] {
+            let target = figcraft_engine::target::of(Some(&app.session.docs[index]));
+            let guarded = request(&mut app, "engine.execute", json!({"window": w, "command": command, "params": {"target": target}}));
+            logic(&ctx, &mut app, &hidden);
+            assert!(guarded.try_recv().unwrap().result.unwrap_err().contains("UI editing"));
+        }
+        assert_eq!(std::fs::read(&path).unwrap(), disk);
+        crate::windows::as_window(&mut app, queued_window, |app| app.ui.pending_opens.clear());
+    }
+    app.external_poll_cursor = index;
+    app.next_external_poll = None;
+    let _ = ctx.run_logic(&RawInput::default(), |ctx| app.external_file_tick(ctx));
+    assert_eq!(app.session.docs[index].doc.name, "External while drop waits");
+    assert_eq!(app.session.docs[index].external_file_state.as_ref().unwrap()["state"], "refreshed");
+    assert_eq!(app.session.ds().unwrap().doc.name, "B");
+    assert_eq!(app.windows.focused, focused);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn hidden_windows_answer_ui_inspection_without_a_frame() {
     let (ctx, mut app, w) = two_windows();
     let other = crate::windows::viewport(w);

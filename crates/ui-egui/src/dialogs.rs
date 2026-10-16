@@ -84,7 +84,7 @@ impl AboutTab {
 }
 
 /// The About window's width, the same on every tab (the Contributors table needs the room).
-pub const ABOUT_WIDTH: f32 = 640.0;
+pub const ABOUT_WIDTH: f32 = 660.0;
 
 /// The About window's tab row, drawn like the Design / Prototype tabs of the right panel.
 /// A row of tabs (the About window's, the shortcuts panel's): the current one highlighted.
@@ -158,6 +158,8 @@ pub fn keys(app: &mut FigApp, ctx: &Context) {
 }
 
 pub fn show(app: &mut FigApp, ctx: &Context) {
+    // Dropped files waiting to open: their card, then (once it has shown) the files.
+    crate::pending_open::pending_opens(app, ctx);
     let t = Tokens::get(ctx);
     if app.ui.about {
         let mut open = true;

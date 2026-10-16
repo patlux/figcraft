@@ -52,6 +52,8 @@ pub struct Windows {
     pub focused: u64,
     /// The main window's file while another window draws.
     main_active: Option<u64>,
+    /// Pending edits in the main pane while another window's pane is swapped into the app.
+    suspended_pending_edit: bool,
     /// Windows to close (their files close with them), at the main window's next frame.
     closing: Vec<u64>,
     last_id: u64,
@@ -63,9 +65,10 @@ impl Windows {
         self.list.iter().find(|w| w.docs.contains(&uid)).map_or(0, |w| w.id)
     }
 
-    /// A field or deferred input in any pane can still commit an edit when it next draws.
+    /// Fields, deferred input and queued drops can commit edits when their pane next draws.
     pub(crate) fn any_pending_edit(&self) -> bool {
-        self.list.iter().any(|w| w.pane.field_focus || !w.pane.control_input.is_empty())
+        self.suspended_pending_edit
+            || self.list.iter().any(|w| w.pane.field_focus || !w.pane.control_input.is_empty() || !w.pane.ui.pending_opens.is_empty())
     }
 
     pub fn exists(&self, id: u64) -> bool {
@@ -458,6 +461,7 @@ fn enter(app: &mut FigApp, id: u64) -> Option<Entered> {
     let want = w.active;
     let mut pane = std::mem::take(&mut w.pane);
     exchange(app, &mut pane);
+    app.windows.suspended_pending_edit = pane.field_focus || !pane.control_input.is_empty() || !pane.ui.pending_opens.is_empty();
     app.windows.current = id;
     app.windows.main_active = main_active;
     show_own(app, want);
@@ -477,6 +481,7 @@ fn adopt(app: &mut FigApp, e: &Entered) {
 fn leave(app: &mut FigApp, mut e: Entered, outer: Option<egui::Rect>, inner: Option<egui::Rect>) {
     let shown = app.session.ds().ok().map(|d| d.uid).filter(|u| app.windows.of(*u) == e.id);
     exchange(app, &mut e.pane);
+    app.windows.suspended_pending_edit = false;
     if let Some(w) = app.windows.list.iter_mut().find(|w| w.id == e.id) {
         w.active = shown.or(w.active);
         w.pos = outer.map(|r| r.min).or(w.pos);
