@@ -2,7 +2,8 @@
 
 Status: save-conflict protection implemented in the local task branch (2026-10-16).
 Guarded control targets are implemented in the local source. The paired bridge validates and pins them.
-Controlled generator adoption is implemented in source. Automatic external refresh remains pending.
+Controlled generator adoption and automatic external refresh are implemented in source.
+Native runtime demonstration and installation remain pending.
 No package or running installation changes as part of this source work.
 
 ## Protected saves
@@ -19,7 +20,7 @@ Use a separate path to preserve both versions. There is no force-overwrite optio
 The CLI can update its explicit `--in` file through `--out` when the baseline still matches.
 A conversion or a new generator document has no baseline for an existing output, so that output is refused.
 This is a compatibility change for scripts that repeatedly wrote the same candidate filename.
-Generate unique candidate paths instead. Existing app windows do not refresh automatically yet.
+Generate unique candidate paths instead. The desktop poller can refresh clean, noninteractive native documents.
 
 ## Current file status
 
@@ -71,6 +72,36 @@ They also cover changed targets/files, local edits, previews, full history, busy
 A hidden-window dispatcher test verifies in-place adoption without changing focus or another window's document.
 These tests are not a demonstration in the installed native app.
 
+## External-file refresh
+
+The desktop checks one open tab per second, including tabs in hidden windows.
+It reads exact bytes instead of trusting mtime or size alone.
+The polling clock uses a monotonic wall clock: egui's UI time stops while hidden-window logic runs.
+With many tabs, each tab waits for its next turn.
+
+A changed native `.figcraft` file refreshes only when the document is clean and noninteractive.
+Pending raw input, UI fields and dialogs defer replacement. Local edits produce a conflict.
+Missing, invalid, unreadable and path-changed files remain untouched.
+Collaboration and open branch tabs defer replacement too.
+The explicit `file.refresh` command (MCP `refresh_file`) applies the same document checks.
+
+Refresh retains a complete prior recovery file and one undo step.
+It installs the external versions and branches, preserving document UID, page where possible and view.
+Old version/branch history remains in the recovery file rather than silently modifying the newly loaded file.
+The external file is never rewritten during refresh. No viewport receives a focus command.
+`document.inspect.externalFile` exposes the last polling result, and `lastExternalRecovery` names the retained prior file.
+`file.status` always makes a fresh observation.
+
+Two Engine refresh regressions failed before implementation and now pass.
+A hidden-window test checks clean refresh, local conflict and deferred-input refusal without a focus change.
+Its first implementation exposed a stopped UI-clock bug. The monotonic-clock fix makes subsequent hidden polls run.
+Twelve window tests pass. These are synthetic dispatcher tests, not native runtime evidence.
+
+Current limits: polling and changed-file parsing run synchronously on the session thread.
+The file-size bound limits bytes, not latency. Large documents can stall the UI.
+Recovery files are retained and are not automatically pruned.
+Only native `.figcraft` originals auto-refresh. Other formats need an explicit separate native candidate.
+
 ## Coordination and limits
 
 Participating writers acquire a nonblocking OS lock on a persistent sibling file named `<destination>.figcraft-lock`.
@@ -118,7 +149,7 @@ These are synthetic dispatcher and transport tests, not a live app demonstration
 - Five Engine tests cover normal save, background save, missing/corrupt originals, Save As and repeated saves after open.
 - Eight format tests cover exact-byte baselines, competing threads, separate processes, busy locks, path aliases and invalid lock files.
 - A CLI regression checks native and JSON output refusal, preservation of existing bytes and explicit input/output updates.
-- Workspace after controlled adoption: 2,387 passed, one failed, eight ignored.
+- Workspace after external refresh: 2,390 passed, one failed, eight ignored.
 - The existing Contributors-table test still fails at 648 pt required versus 640 pt available. It was not changed.
 - Workspace clippy with warnings denied, formatting, layering and asset checks pass.
 - WASM checking stops before project code because the local toolchain lacks `wasm32-unknown-unknown` (`core`/`std`).

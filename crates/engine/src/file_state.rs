@@ -45,6 +45,7 @@ fn initial(ds: &DocState) -> Value {
         "target": crate::target::of(Some(ds)), "path": ds.path,
         "state": "untracked", "dirty": ds.is_dirty(),
         "baseline": baseline_json(ds.file_baseline.as_ref()),
+        "lastExternalRecovery": ds.external_recovery,
         "designMatchesDisk": false, "savedAndCurrent": false,
     })
 }

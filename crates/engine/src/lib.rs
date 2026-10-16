@@ -26,6 +26,7 @@ pub mod devinspect;
 pub mod distance;
 pub mod drop;
 pub mod file_adoption;
+pub mod file_refresh;
 pub mod file_state;
 pub mod guard;
 pub mod guides;
@@ -342,6 +343,10 @@ pub struct DocState {
     pub path: Option<String>,
     /// Exact bytes last opened or saved. None never grants permission to overwrite a file.
     pub file_baseline: Option<figcraft_format::file_sync::Baseline>,
+    /// Complete previous file state retained before the last automatic external refresh.
+    pub external_recovery: Option<String>,
+    /// Last desktop polling observation; explicit file.status performs a fresh read.
+    pub external_file_state: Option<serde_json::Value>,
     pub revision: u64,
     pub view: ViewState,
     pub interaction: Option<Interaction>,
@@ -417,6 +422,8 @@ impl DocState {
             history: History { limit: 1000, ..Default::default() },
             path,
             file_baseline: None,
+            external_recovery: None,
+            external_file_state: None,
             revision: 1,
             view: ViewState::default(),
             interaction: None,
@@ -866,7 +873,7 @@ impl Session {
         // An observation must not end previews, sync branches, or invalidate the target it returns.
         // Adoption validates and prepares a whole replacement before disk commit. It owns its undo,
         // saved baseline and revision; generic post-normalization would diverge from committed bytes.
-        if matches!(id, "file.status" | "file.operationStatus" | "file.adopt") {
+        if matches!(id, "file.status" | "file.operationStatus" | "file.adopt" | "file.refresh") {
             return guard::run(id, || (spec.run)(self, params));
         }
         // Revert replaces the document's uid: refuse before ending previews or syncing branches.
@@ -1548,6 +1555,8 @@ mod fig_import_tests;
 mod file_adoption_tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod file_conflict_tests;
+#[cfg(test)]
+mod file_refresh_tests;
 #[cfg(test)]
 mod file_state_tests;
 #[cfg(test)]

@@ -63,6 +63,11 @@ impl Windows {
         self.list.iter().find(|w| w.docs.contains(&uid)).map_or(0, |w| w.id)
     }
 
+    /// A field or deferred input in any pane can still commit an edit when it next draws.
+    pub(crate) fn any_pending_edit(&self) -> bool {
+        self.list.iter().any(|w| w.pane.field_focus || !w.pane.control_input.is_empty())
+    }
+
     pub fn exists(&self, id: u64) -> bool {
         id == 0 || self.list.iter().any(|w| w.id == id)
     }
