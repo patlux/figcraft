@@ -3,7 +3,8 @@
 Status: save-conflict protection implemented in the local task branch (2026-10-16).
 Guarded control targets are implemented in the local source. The paired bridge validates and pins them.
 Controlled generator adoption and automatic external refresh are implemented in source.
-Native runtime demonstration and installation remain pending.
+A bounded macOS native smoke test now verifies refresh, adoption and conflict retention with window screenshots.
+Installation and the configured Pi-to-bridge-to-app integration test remain pending.
 No package or running installation changes as part of this source work.
 
 ## Protected saves
@@ -155,5 +156,35 @@ These are synthetic dispatcher and transport tests, not a live app demonstration
 - WASM checking stops before project code because the local toolchain lacks `wasm32-unknown-unknown` (`core`/`std`).
 - A timed-out workspace build left invalid incremental objects. Workspace-scoped `mbx clean` followed by rebuilding resolved the linker errors.
 
-These checks use synthetic files. There is no live UI synchronization or screenshot evidence for this slice.
-The save guard is a prerequisite, not completion of the full file/window synchronization work.
+### Native smoke test
+
+The example uses the real eframe/WGPU event loop and `FigApp` with `NoServices`.
+It creates synthetic files in a new evidence directory. It opens no listener and loads no preferences or recovery files.
+Run from `/Users/patwoz/dev/Personal/thirdparty/figcraft`:
+
+```sh
+mbx run --locked -p figcraft --example sync_smoke -- /tmp/figcraft-sync-new-run
+```
+
+The absolute evidence directory must not exist. The example has a 30-second deadline and returns nonzero on failure.
+It minimizes its own window, changes the file externally and verifies refresh before another UI frame draws.
+Then it restores the window, adopts a separate candidate and introduces a local/external conflict.
+It checks the receipt and saved state. A refused conflicting save must leave the external bytes unchanged.
+Three window captures must contain the expected canvas colors. The native window needs enough visible space to draw those captures.
+
+The reviewed run on 2026-10-16 passed in `/tmp/figcraft-native-sync-smoke-20261016-g`:
+
+- `hiddenRefresh` and `noFramesDuringHiddenRefresh` are true.
+- `adoption` and `conflictPreserved` are true. All three screenshot pixel checks pass.
+- The first screenshot shows the updated purple design and text in the existing document.
+- The second shows the adopted green design.
+- The third preserves the green live design, marks local work unsaved and shows the conflict message.
+
+The renderer completes asynchronously. An early capture showed the old canvas under the new document title.
+Later captures showed the updated canvas without reopening. The example waits two seconds before capture and checks the captured pixels.
+An intermediate run timed out before the second screenshot. Another produced a narrow window that was unsuitable for visual review.
+The final example fixes its window size and refuses undersized captures. It does not change the host window manager.
+
+This proves native behavior for the synthetic fixture, not large-file latency or Figma parity.
+The example calls Engine commands directly. It does not test the installed app, bridge relay or packaged CLI together.
+No package pin, installation or running user document changed.
