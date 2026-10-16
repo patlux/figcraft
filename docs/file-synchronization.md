@@ -2,7 +2,7 @@
 
 Status: save-conflict protection implemented in the local task branch (2026-10-16).
 Guarded control targets are implemented in the local source. The paired bridge validates and pins them.
-Automatic external refresh and generator adoption are not yet implemented.
+Controlled generator adoption is implemented in source. Automatic external refresh remains pending.
 No package or running installation changes as part of this source work.
 
 ## Protected saves
@@ -37,6 +37,39 @@ Status calls preserve previews, history and revision. They do not refresh the do
 
 Three status regressions failed before implementation. Four Engine tests now cover disk changes, errors, history, previews and image fingerprints.
 An MCP regression checks the tool response and read-only annotation.
+
+## Controlled generator adoption
+
+Generate a separate native candidate. Never overwrite an open original.
+Call `file.status` for the current target, revision and disk SHA-256.
+Call `file.adopt` with that target, `candidate`, `candidateSha256`, `diskSha256` and a unique `operation` ID.
+MCP exposes this as `adopt_file`.
+
+The app requires a clean, noninteractive main document with a saved `.figcraft` baseline.
+It refuses active previews, collaboration, open branch tabs and candidates with branches.
+It also refuses repaired candidates, changed hashes, busy locks and full version history.
+Adoption cannot run inside a rollback-capable command group.
+
+Both participating-writer locks stay held during validation and persistence.
+Before replacement, the app saves the complete previous document to `<original>.recovery-<operation>.figcraft`.
+That path must not exist. A failed later step can leave the recovery copy, but does not remove it.
+The app retains existing versions and candidate versions without deleting old entries.
+It records the previous design and an operation receipt as named versions.
+Then it atomically writes the prepared archive and installs it in the same document UID.
+It preserves the view and creates one undo step. Undo does not rewrite disk until a later save.
+
+After a lost reply, call `file.operationStatus` (MCP `file_operation_status`). Never replay automatically.
+`resultPresent` requires the retained receipt, matching design, current saved baseline and disk agreement.
+`changedOrUnknown` and `unknown` do not prove failure and do not authorize a retry.
+Receipts survive reopen through native version history, but users can delete them.
+This is outcome observation, not a durable exactly-once transaction protocol.
+A crash after disk replacement but before live installation still needs restart/reopen recovery.
+The existing advisory-lock and power-loss limits below apply.
+
+Two adoption regressions failed before implementation. Four Engine tests cover recovery, both histories, undo and post-reopen outcome observation.
+They also cover changed targets/files, local edits, previews, full history, busy locks, invalid candidates and recovery-write failure.
+A hidden-window dispatcher test verifies in-place adoption without changing focus or another window's document.
+These tests are not a demonstration in the installed native app.
 
 ## Coordination and limits
 
@@ -85,7 +118,7 @@ These are synthetic dispatcher and transport tests, not a live app demonstration
 - Five Engine tests cover normal save, background save, missing/corrupt originals, Save As and repeated saves after open.
 - Eight format tests cover exact-byte baselines, competing threads, separate processes, busy locks, path aliases and invalid lock files.
 - A CLI regression checks native and JSON output refusal, preservation of existing bytes and explicit input/output updates.
-- Workspace after file-status support: 2,382 passed, one failed, eight ignored.
+- Workspace after controlled adoption: 2,387 passed, one failed, eight ignored.
 - The existing Contributors-table test still fails at 648 pt required versus 640 pt available. It was not changed.
 - Workspace clippy with warnings denied, formatting, layering and asset checks pass.
 - WASM checking stops before project code because the local toolchain lacks `wasm32-unknown-unknown` (`core`/`std`).

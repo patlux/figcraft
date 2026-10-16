@@ -25,6 +25,7 @@ pub mod devcompare;
 pub mod devinspect;
 pub mod distance;
 pub mod drop;
+pub mod file_adoption;
 pub mod file_state;
 pub mod guard;
 pub mod guides;
@@ -728,6 +729,8 @@ pub struct Session {
     pub ui_dark: Option<bool>,
     /// Command log (id + params) for actions/automation.
     pub journal: Vec<(String, Value)>,
+    /// Irreversible file adoption is forbidden inside rollback-capable command groups.
+    pub(crate) group_depth: usize,
     /// Recently used colours.
     pub recent_colors: Vec<figcraft_color::Color>,
     /// The last undoable command executed through [`Session::execute`], excluding "Repeat".
@@ -770,6 +773,7 @@ impl Session {
             ui_requests: Vec::new(),
             ui_dark: None,
             journal: Vec::new(),
+            group_depth: 0,
             recent_colors: Vec::new(),
             last_command: None,
             message: None,
@@ -860,7 +864,9 @@ impl Session {
     pub fn execute(&mut self, id: &str, params: &Value) -> Result<Value> {
         let spec = find_command(id).ok_or_else(|| EngineError::UnknownCommand(id.to_string()))?;
         // An observation must not end previews, sync branches, or invalidate the target it returns.
-        if id == "file.status" {
+        // Adoption validates and prepares a whole replacement before disk commit. It owns its undo,
+        // saved baseline and revision; generic post-normalization would diverge from committed bytes.
+        if matches!(id, "file.status" | "file.operationStatus" | "file.adopt") {
             return guard::run(id, || (spec.run)(self, params));
         }
         // Revert replaces the document's uid: refuse before ending previews or syncing branches.
@@ -1169,7 +1175,9 @@ impl Session {
         for (uid, _, _, _, _, _) in &before {
             self.live_hold(*uid, true);
         }
+        self.group_depth = self.group_depth.saturating_add(1);
         let result = f(self);
+        self.group_depth = self.group_depth.saturating_sub(1);
         for (uid, _, _, _, _, _) in &before {
             self.live_hold(*uid, false);
         }
@@ -1536,6 +1544,8 @@ mod fig_export_assets_tests;
 mod fig_export_tests;
 #[cfg(test)]
 mod fig_import_tests;
+#[cfg(test)]
+mod file_adoption_tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod file_conflict_tests;
 #[cfg(test)]

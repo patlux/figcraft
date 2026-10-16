@@ -35,7 +35,12 @@ Use `savedAndCurrent: true` as point-in-time evidence after a save.
 Design hashes include images but exclude the current page, thumbnail and history.
 A history-only edit keeps `savedAndCurrent` false until a successful save.
 The tool does not refresh, merge or overwrite anything.
-See [file synchronization](file-synchronization.md) for target checks and writer-lock limits.
+`adopt_file` imports a separate native candidate into the same clean open document and saves it through protected writes.
+Pass `target` with revision, `candidate`, `candidateSha256`, `diskSha256` and a unique `operation` ID.
+It retains history and a separate recovery copy. It refuses local changes, interaction and ambiguous targets.
+After a lost reply, use `file_operation_status` instead of replaying the adoption.
+`resultPresent` is an observation of the retained receipt and current disk agreement, not an exactly-once guarantee.
+See [file synchronization](file-synchronization.md) for preconditions, target checks and writer-lock limits.
 
 ### Fonts
 

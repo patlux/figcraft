@@ -140,6 +140,46 @@ fn guarded_screenshot_refuses_changed_document_when_capture_arrives() {
 }
 
 #[test]
+fn hidden_window_adopts_candidate_in_place_without_changing_focus_or_other_document() {
+    let (ctx, mut app, w) = two_windows();
+    let dir = std::env::temp_dir().join(format!("figcraft-hidden-adopt-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("original.figcraft");
+    let candidate = dir.join("candidate.figcraft");
+    let saved = request(&mut app, "engine.execute", json!({"window": w, "command": "file.save", "params": {"path": path}}));
+    logic(&ctx, &mut app, &[ViewportId::ROOT, crate::windows::viewport(w)]);
+    assert!(saved.try_recv().unwrap().result.is_ok());
+    let mut generated = Session::new();
+    generated.execute("file.rename", &json!({"name": "Generated hidden"})).unwrap();
+    generated.execute("file.save", &json!({"path": candidate})).unwrap();
+    let status = request(&mut app, "engine.execute", json!({"window": w, "command": "file.status"}));
+    logic(&ctx, &mut app, &[ViewportId::ROOT, crate::windows::viewport(w)]);
+    let status = status.try_recv().unwrap().result.unwrap();
+    assert_eq!(status["target"]["window"], w);
+    let (_, candidate_baseline) = figcraft_format::file_sync::read(&candidate).unwrap();
+    let focused = app.windows.focused;
+    let adoption = request(
+        &mut app,
+        "engine.execute",
+        json!({"window": w, "target": status["target"], "command": "file.adopt", "params": {
+            "target": status["target"], "candidate": candidate, "candidateSha256": candidate_baseline.sha256,
+            "diskSha256": status["disk"]["sha256"], "operation": "hidden-window-test"
+        }}),
+    );
+    logic(&ctx, &mut app, &[ViewportId::ROOT, crate::windows::viewport(w)]);
+    let result = adoption.try_recv().unwrap().result.unwrap();
+    assert_eq!(result["target"]["document"], status["target"]["document"]);
+    assert_eq!(result["target"]["window"], w);
+    assert_eq!(app.windows.focused, focused);
+    assert_eq!(app.session.ds().unwrap().doc.name, "B");
+    let inspected = request(&mut app, "document.inspect", json!({"window": w}));
+    logic(&ctx, &mut app, &[ViewportId::ROOT, crate::windows::viewport(w)]);
+    assert_eq!(inspected.try_recv().unwrap().result.unwrap()["name"], "Generated hidden");
+    assert_eq!(figcraft_engine::cmd::file::load(path.to_str().unwrap()).unwrap().0.name, "Generated hidden");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn hidden_windows_answer_ui_inspection_without_a_frame() {
     let (ctx, mut app, w) = two_windows();
     let other = crate::windows::viewport(w);
