@@ -105,6 +105,11 @@ Runs commands in a headless session (a new document, or `--in`), printing one JS
 
 A failing step prints `"ok": false` with the error and exits with code 1 (nothing is saved).
 `--out` saves the result by extension like `convert`.
+Native `.figcraft` and JSON destinations must be new, or match the baseline of the explicit `--in` file.
+An external change or an unrelated existing destination is an error, not an overwrite.
+Native writes use the same baseline checks and short-lived OS locks as the app.
+Use unique candidate paths for generators. An open app document does not refresh automatically yet.
+See [file synchronization](file-synchronization.md) for the protocol and its limits.
 
 Script formats: a JSON array of `{"command": id, "params": {...}}`, an object
 `{"commands": [...]}`, or JSON lines (one step per line; blank lines and `//` lines are skipped).

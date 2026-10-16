@@ -337,6 +337,8 @@ pub struct DocState {
     pub history: History,
     saved_doc: Arc<Document>,
     pub path: Option<String>,
+    /// Exact bytes last opened or saved. None never grants permission to overwrite a file.
+    pub file_baseline: Option<figcraft_format::file_sync::Baseline>,
     pub revision: u64,
     pub view: ViewState,
     pub interaction: Option<Interaction>,
@@ -411,6 +413,7 @@ impl DocState {
             page,
             history: History { limit: 1000, ..Default::default() },
             path,
+            file_baseline: None,
             revision: 1,
             view: ViewState::default(),
             interaction: None,
@@ -1527,6 +1530,8 @@ mod fig_export_assets_tests;
 mod fig_export_tests;
 #[cfg(test)]
 mod fig_import_tests;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod file_conflict_tests;
 #[cfg(test)]
 mod frame_guides_tests;
 #[cfg(test)]

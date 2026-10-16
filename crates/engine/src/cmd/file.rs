@@ -41,8 +41,14 @@ pub fn specs() -> Vec<CommandSpec> {
             false,
             open_recent
         ),
-        spec!("file.save", "Save", "{path?} (programmatic saves need a path the first time)", false, save),
-        spec!("file.saveAs", "Save as", "{path}", false, save_as),
+        spec!(
+            "file.save",
+            "Save",
+            "{path?} (programmatic saves need a path the first time; refuses external changes or an existing destination without this document's baseline)",
+            false,
+            save
+        ),
+        spec!("file.saveAs", "Save as", "{path} (a new destination must not exist; conflicts require a separate copy)", false, save_as),
         spec!(
             "file.export",
             "Export",
@@ -114,11 +120,12 @@ pub fn specs() -> Vec<CommandSpec> {
         }),
         spec!("file.revert", "Revert to saved", "{}  leave the live session first, if any", false, |s, _| {
             let path = s.ds()?.path.clone().ok_or_else(|| EngineError::Disabled("file.revert".into(), "the file was never saved".into()))?;
-            let (loaded, _) = load_path(&path, None)?;
+            let (loaded, _, baseline) = load_tracked(&path, None)?;
             let i = s.active;
             let uid = s.ds()?.uid;
             if let Some(slot) = s.docs.get_mut(i) {
                 *slot = DocState::new(loaded.doc, Some(path)).with_versions(loaded.versions).with_branches(loaded.branches);
+                slot.file_baseline = Some(baseline);
             }
             // Edits on its branch tabs are reverted too.
             crate::branches::close_tabs(s, uid, None);
@@ -479,6 +486,14 @@ pub fn load_path(path: &str, variables: Option<&Value>) -> Result<(figcraft_form
     load_with(&bytes, path, variables.or(sibling.as_ref()), &rest_images(path))
 }
 
+/// A tracked open hashes the same bytes it parses, never a second read after decoding.
+fn load_tracked(path: &str, variables: Option<&Value>) -> Result<(figcraft_format::Loaded, bool, figcraft_format::file_sync::Baseline)> {
+    let (bytes, baseline) = figcraft_format::file_sync::read(std::path::Path::new(path)).map_err(|e| EngineError::Other(format!("{path}: {e}")))?;
+    let sibling = if variables.is_none() { sibling_variables(path) } else { None };
+    let (loaded, rest) = load_with(&bytes, path, variables.or(sibling.as_ref()), &rest_images(path))?;
+    Ok((loaded, rest, baseline))
+}
+
 /// Load from bytes. Returns the document with its notes (repairs of a native file, or import
 /// warnings) and version history, and whether it was imported from REST API file JSON or a `.fig`
 /// file (such a file is never saved over). `variables`: the local variables JSON for a REST API file JSON.
@@ -661,7 +676,7 @@ fn open(s: &mut Session, p: &Value) -> Result<Value> {
         remember(s, &path);
         return Ok(json!({"index": i}));
     }
-    let (loaded, rest) = load_path(&path, variables.as_ref())?;
+    let (loaded, rest, baseline) = load_tracked(&path, variables.as_ref())?;
     remember(s, &path);
     let native = !rest && matches!(ext(&path).as_str(), "figcraft" | "json");
     let warnings = rest || ext(&path) == "svg";
@@ -672,7 +687,9 @@ fn open(s: &mut Session, p: &Value) -> Result<Value> {
             more => format!("{}: {} problems were repaired or left out while opening it, e.g. {}", file_stem(&path), more.len(), more[0]),
         });
     }
-    s.docs.push(DocState::new(loaded.doc, native.then_some(path)).with_versions(loaded.versions).with_branches(loaded.branches));
+    let mut ds = DocState::new(loaded.doc, native.then_some(path)).with_versions(loaded.versions).with_branches(loaded.branches);
+    ds.file_baseline = native.then_some(baseline);
+    s.docs.push(ds);
     s.active = s.docs.len() - 1;
     let mut out = json!({"index": s.active});
     out[if warnings { "warnings" } else { "repairs" }] = json!(loaded.issues);
@@ -709,6 +726,7 @@ pub struct FileSnapshot {
     doc: Arc<Document>,
     /// The document as last saved when the snapshot was taken: another save since makes it stale.
     saved: Arc<Document>,
+    baseline: Option<figcraft_format::file_sync::Baseline>,
     page: NodeId,
     versions: Vec<Version>,
     branches: Vec<figcraft_format::Branch>,
@@ -722,6 +740,7 @@ impl FileSnapshot {
             revision: ds.revision,
             doc: ds.doc.clone(),
             saved: ds.saved_doc.clone(),
+            baseline: ds.file_baseline.clone(),
             page: ds.page,
             versions: ds.versions.clone(),
             branches: ds.branches.clone(),
@@ -744,7 +763,13 @@ impl FileSnapshot {
         let Some(ds) = s.docs.iter_mut().find(|d| d.uid == self.uid && d.path == self.path && Arc::ptr_eq(&d.saved_doc, &self.saved)) else {
             return Ok(false);
         };
-        write(self.path.as_deref().ok_or(EngineError::NoDocument)?, bytes)?;
+        if ds.file_baseline != self.baseline {
+            return Ok(false);
+        }
+        let path = self.path.as_deref().ok_or(EngineError::NoDocument)?;
+        let baseline = figcraft_format::file_sync::write_checked(std::path::Path::new(path), self.baseline.as_ref(), bytes)
+            .map_err(|e| EngineError::Other(format!("{path}: {e}")))?;
+        ds.file_baseline = Some(baseline);
         // The history or branches may have changed since: then they still count as unsaved.
         if ds.revision == self.revision {
             ds.versions_changed = false;
@@ -779,8 +804,12 @@ fn color_profile(s: &mut Session, p: &Value) -> Result<Value> {
 fn save_to(s: &mut Session, path: String) -> Result<Value> {
     let i = crate::branches::file_tab(s);
     let ds = s.docs.get_mut(i).ok_or(EngineError::NoDocument)?;
+    let target = figcraft_format::file_sync::target(std::path::Path::new(&path)).map_err(|e| EngineError::Other(format!("{path}: {e}")))?;
+    let expected = ds.file_baseline.as_ref().filter(|b| ds.path.as_deref() == Some(path.as_str()) || b.path == target);
     let bytes = file_bytes(ds)?;
-    write(&path, &bytes)?;
+    let baseline = figcraft_format::file_sync::write_checked(std::path::Path::new(&path), expected, &bytes)
+        .map_err(|e| EngineError::Other(format!("{path}: {e}")))?;
+    ds.file_baseline = Some(baseline);
     ds.path = Some(path.clone());
     ds.mark_saved();
     ds.revision += 1;

@@ -92,6 +92,10 @@ fn encode(doc: &Document, pix: &figcraft_render::Pixmap, e: &str) -> CliResult<V
 
 /// Write `doc` to `out`, choosing the format by extension.
 pub fn write_doc(doc: &Document, page: NodeId, out: &str) -> CliResult<()> {
+    write_doc_with_baseline(doc, page, out, None)
+}
+
+fn write_doc_with_baseline(doc: &Document, page: NodeId, out: &str, baseline: Option<&figcraft_format::file_sync::Baseline>) -> CliResult<()> {
     let e = ext(out);
     let bytes = match e.as_str() {
         "figcraft" => {
@@ -110,7 +114,17 @@ pub fn write_doc(doc: &Document, page: NodeId, out: &str) -> CliResult<()> {
         "fig" => fig_bytes(doc)?,
         other => return Err(CliError::Usage(format!("unknown output format `.{other}` (figcraft, json, svg, png, jpg, webp, pdf, fig)"))),
     };
-    write(out, &bytes)
+    if matches!(e.as_str(), "figcraft" | "json") {
+        if let Some(dir) = Path::new(out).parent().filter(|d| !d.as_os_str().is_empty()) {
+            std::fs::create_dir_all(dir).map_err(|e| CliError::Failed(format!("{}: {e}", dir.display())))?;
+        }
+        let target = figcraft_format::file_sync::target(Path::new(out)).map_err(|e| CliError::Failed(e.to_string()))?;
+        let expected = baseline.filter(|b| b.path == target);
+        figcraft_format::file_sync::write_checked(Path::new(out), expected, &bytes).map_err(|e| CliError::Failed(format!("{out}: {e}")))?;
+        Ok(())
+    } else {
+        write(out, &bytes)
+    }
 }
 
 /// `doc` as a `.fig` file (experimental), printing what was left out.
@@ -346,12 +360,15 @@ pub fn run_script(script: &str, input: Option<&str>, out: Option<&str>) -> CliRe
         }
     }
     if let Some(out) = out {
-        let ds = s.ds().map_err(|e| CliError::Failed(e.to_string()))?;
         if ext(out) == "figcraft" {
-            // Through the engine, so the version history is kept.
-            write(out, &figcraft_engine::cmd::file::file_bytes(ds).map_err(|e| CliError::Failed(e.to_string()))?)?;
+            // Use the same baseline/lock and history-preserving save path as the app.
+            if let Some(dir) = Path::new(out).parent().filter(|d| !d.as_os_str().is_empty()) {
+                std::fs::create_dir_all(dir).map_err(|e| CliError::Failed(format!("{}: {e}", dir.display())))?;
+            }
+            s.execute("file.save", &json!({"path": out})).map_err(|e| CliError::Failed(e.to_string()))?;
         } else {
-            write_doc(&ds.doc, ds.page, out)?;
+            let ds = s.ds().map_err(|e| CliError::Failed(e.to_string()))?;
+            write_doc_with_baseline(&ds.doc, ds.page, out, ds.file_baseline.as_ref())?;
         }
         eprintln!("wrote {out}");
     }
@@ -361,6 +378,29 @@ pub fn run_script(script: &str, input: Option<&str>, out: Option<&str>) -> CliRe
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_outputs_refuse_unobserved_existing_files() {
+        let dir = std::env::temp_dir().join(format!("figcraft-cli-conflict-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("script.json");
+        std::fs::write(&script, r#"[{"command":"file.rename","params":{"name":"Candidate"}}]"#).unwrap();
+        for ext in ["figcraft", "json"] {
+            let out = dir.join(format!("candidate.{ext}"));
+            let path = out.to_str().unwrap();
+            let mut s = Session::new();
+            s.execute("file.save", &json!({"path": path})).unwrap();
+            let before = std::fs::read(&out).unwrap();
+            assert!(run_script(script.to_str().unwrap(), None, Some(path)).is_err());
+            assert_eq!(std::fs::read(&out).unwrap(), before);
+            assert!(write_doc(s.doc().unwrap(), s.page().unwrap(), path).is_err());
+            assert_eq!(std::fs::read(&out).unwrap(), before);
+            // An explicit input supplies a baseline for writing that same file back.
+            assert_eq!(run_script(script.to_str().unwrap(), Some(path), Some(path)).unwrap(), ExitCode::SUCCESS);
+            assert_eq!(load(path).unwrap().name, "Candidate");
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn script_formats() {

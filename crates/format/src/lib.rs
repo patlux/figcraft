@@ -18,6 +18,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod fig;
+pub mod file_sync;
 pub mod library;
 pub mod rest;
 pub mod thumbnail;
@@ -749,6 +750,8 @@ pub fn load_file(path: &std::path::Path) -> Result<(Document, Vec<String>), Form
 
 #[cfg(test)]
 mod branch_tests;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod file_sync_tests;
 #[cfg(test)]
 mod image_budget_tests;
 #[cfg(test)]
