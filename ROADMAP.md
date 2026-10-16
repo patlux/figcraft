@@ -131,6 +131,8 @@ Ranked; detail and milestones in [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Progress log
 
+- **2026-10-16** · Agent synchronization instructions (M0.9, local fork): MCP initialization now states the separate-candidate, exact-status, no-replay and visible-pixel contracts. A protocol regression checks those instructions. MCP tests and workspace clippy pass. The paired bridge and skill carry the same rules, including the boundary between document rollback and external writes. No installation. Estimates unchanged.
+
 - **2026-10-16** · Agent parameter safety (M0.9, local fork): selected upstream #675/#608 checks reject invalid parent/layer IDs and document-close indices. Seven regression cases fail before the fix, all ten pass after it. Full workspace: 2,400 passed, one known Contributors-table failure, eight ignored. Clippy, formatting, layering and assets pass. The local WASM target is still missing. [Requirement and upstream audit](docs/agent-workflow-audit.md) records evidence and deferred candidates. No installation. Estimates unchanged.
 
 - **2026-10-16** · Native synchronization smoke (M0.9, local fork): a bounded eframe/WGPU example verifies external refresh while minimized without UI frames, candidate adoption and conflict preservation. Three inspected window screenshots and pixel assertions cover the displayed designs. A refused save leaves external bytes unchanged. The example uses synthetic files and NoServices, with no listener or preferences. Installed Pi/bridge/CLI integration and activation remain pending. Estimates unchanged.
@@ -332,6 +334,7 @@ Ranked; detail and milestones in [`docs/roadmap.md`](docs/roadmap.md).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-16 | minor | M0.9: synchronization contracts in MCP initialization, protocol assertions and paired bridge/skill instructions. No installation. Estimates unchanged. |
 | 2026-10-16 | minor | M0.9: selected upstream #675/#608 parameter guards, seven before-fix failures and ten passing regressions. Requirement/upstream audit records evidence and pending installation. Estimates unchanged. |
 | 2026-10-16 | minor | M0.9: bounded native synchronization smoke, minimized refresh without UI frames, candidate adoption, conflicting-save refusal and three inspected window captures. Installation remains pending. Estimates unchanged. |
 | 2026-10-15 | minor | M3: CPU inner shadows honor their blend mode on shapes, frames and groups. Five regressions and synthetic PNG comparisons cover the fix. Normal output stays unchanged. SVG vector/PDF shadow paths remain separate gaps. Estimates unchanged. |

@@ -23,6 +23,9 @@ fn initialize_negotiates_versions() {
         assert!(caps["tools"].is_object() && caps["resources"].is_object() && caps["prompts"].is_object());
         let ins = r["result"]["instructions"].as_str().unwrap();
         assert!(ins.contains("y DOWN") && ins.contains("RELATIVE TO THE PARENT") && ins.contains("list_commands") && ins.contains("screenshot"));
+        for contract in ["savedAndCurrent", "file_operation_status", "outside rollback batches", "updated canvas pixels"] {
+            assert!(ins.contains(contract), "missing synchronization instruction: {contract}");
+        }
         assert!(!s.is_initialized());
         assert!(s.handle_line(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#).is_none());
         assert!(s.is_initialized());

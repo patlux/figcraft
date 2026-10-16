@@ -36,7 +36,13 @@ and run them with run_command, or several as one undo step with batch. Commands 
 on the selection; new layers become the selection. Colours are \"#RRGGBB\" or \"#RRGGBBAA\". Verify your work: \
 inspect_document / get_node return the layer tree as JSON (check sizes, fills, layout, overrides), and \
 screenshot returns a PNG of the page or of given layers to look at. undo/redo step through history. \
-Resources: figcraft://document, figcraft://node/{id}, figcraft://command/{id}. prompts/list has workflows.";
+Resources: figcraft://document, figcraft://node/{id}, figcraft://command/{id}. prompts/list has workflows. \
+File synchronization: never overwrite an open original with an offline generator. Generate a separate \
+candidate. Use file_status and require savedAndCurrent for point-in-time live/disk agreement, not dirty alone. \
+For adopt_file, use a fresh target including revision, both file hashes and a unique operation ID. \
+After a lost reply, inspect file_operation_status instead of replaying; unknown does not prove failure. \
+Keep save/adopt/refresh outside rollback batches. A window screenshot can precede the updated canvas pixels: \
+examine the capture before claiming visible completion. Conflicts preserve both sides and need explicit resolution.";
 
 /// An MCP server bound to one backend.
 pub struct Server {

@@ -33,14 +33,14 @@ The installed app and CLI still use that base. This audit does not claim install
 - The native smoke passes with three reviewed captures in `/tmp/figcraft-native-sync-smoke-20261016-g`.
 - The skill prose checker reports zero findings.
 
-The full workspace is not green. No test was removed or weakened.
+The full workspace still has one failure. All tests and assertions remain in place.
 The native example uses `NoServices` and direct Engine commands, with no control listener or user preferences.
 It is not an end-to-end test of Pi, the bridge, the packaged CLI and the installed app together.
 See `/Users/patwoz/dev/Personal/thirdparty/figcraft/docs/file-synchronization.md` for commands, retained artifacts and failed intermediate attempts.
 
 ## Selective upstream review
 
-The GitHub PR API and staged patches were checked again on 2026-10-16.
+The review checked the GitHub PR API and staged patches again on 2026-10-16.
 The reviewed upstream main remains `23bdebd97336714ded6e826dfa8d468c9ee20e34` for this assessment.
 No wholesale PR or main-branch merge is part of this change.
 
