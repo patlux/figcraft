@@ -60,6 +60,86 @@ fn two_windows() -> (egui::Context, FigApp, u64) {
 }
 
 #[test]
+fn guarded_calls_reject_a_tab_switch_and_an_old_app_instance() {
+    let (ctx, mut app, w) = two_windows();
+    let inspected = crate::control::handle(&mut app, &ctx, "document.inspect", &json!({})).unwrap();
+    let target = inspected["target"].clone();
+    let other_index = app.session.docs.iter().position(|d| d.doc.name == "A").unwrap();
+    app.session.execute("doc.switch", &json!({"index": other_index})).unwrap();
+    let before = names(&app);
+    let params = json!({"target": target, "command": "file.rename", "params": {"name": "Wrong"}});
+    assert!(crate::control::handle(&mut app, &ctx, "engine.execute", &params).is_err(), "do not edit the new active tab");
+    assert_eq!(names(&app), before);
+    let mut fresh = crate::control::handle(&mut app, &ctx, "document.inspect", &json!({})).unwrap()["target"].clone();
+    fresh["instance"] = json!("previous-app-run");
+    assert!(
+        crate::control::handle(&mut app, &ctx, "engine.execute", &json!({"target": fresh, "command": "file.rename", "params": {"name": "Wrong"}}))
+            .is_err()
+    );
+    assert_eq!(names(&app), before);
+    assert!(w > 0);
+}
+
+#[test]
+fn guarded_calls_check_revision_and_target_after_queueing_even_when_hidden() {
+    let (ctx, mut app, w) = two_windows();
+    let target = crate::windows::list(&app)[0]["target"].clone();
+    let queued = request(&mut app, "engine.execute", json!({"window": 0, "target": target, "command": "file.rename", "params": {"name": "Stale"}}));
+    app.session.execute("file.rename", &json!({"name": "Newer edit"})).unwrap();
+    let before = names(&app);
+    logic(&ctx, &mut app, &[ViewportId::ROOT, crate::windows::viewport(w)]);
+    assert!(queued.try_recv().unwrap().result.unwrap_err().contains("revision changed"));
+    assert_eq!(names(&app), before);
+    let mut identity = crate::windows::list(&app)[0]["target"].clone();
+    identity.as_object_mut().unwrap().remove("revision");
+    let queued =
+        request(&mut app, "engine.execute", json!({"window": 0, "target": identity, "command": "file.rename", "params": {"name": "Correct"}}));
+    logic(&ctx, &mut app, &[ViewportId::ROOT, crate::windows::viewport(w)]);
+    assert!(queued.try_recv().unwrap().result.is_ok());
+    assert_eq!(app.session.ds().unwrap().doc.name, "Correct");
+    let target = crate::windows::list(&app)[0]["target"].clone();
+    let raw = request(&mut app, "ui.input", json!({"window": 0, "target": target, "events": [{"text": "not deferred"}]}));
+    logic(&ctx, &mut app, &[ViewportId::ROOT, crate::windows::viewport(w)]);
+    assert!(raw.try_recv().unwrap().result.unwrap_err().contains("deferred"));
+    assert!(crate::windows::take_input(&mut app, ViewportId::ROOT).is_empty());
+}
+
+#[test]
+fn guarded_calls_reject_wrong_window_path_and_missing_identity() {
+    let (ctx, mut app, w) = two_windows();
+    let target = crate::windows::list(&app)[0]["target"].clone();
+    let before = names(&app);
+    for (key, value) in [("window", json!(w)), ("path", json!("/tmp/other-synthetic.figcraft")), ("document", Value::Null)] {
+        let mut bad = target.clone();
+        bad[key] = value;
+        let r = request(&mut app, "engine.execute", json!({"window": 0, "target": bad, "command": "file.rename", "params": {"name": "Wrong"}}));
+        logic(&ctx, &mut app, &[ViewportId::ROOT, crate::windows::viewport(w)]);
+        assert!(r.try_recv().unwrap().result.is_err(), "{key}");
+        assert_eq!(names(&app), before);
+    }
+}
+
+#[test]
+fn guarded_screenshot_refuses_changed_document_when_capture_arrives() {
+    let (ctx, mut app, _) = two_windows();
+    let target = crate::windows::list(&app)[0]["target"].clone();
+    let shot = request(&mut app, "ui.screenshot", json!({"window": 0, "target": target, "path": "/tmp/figcraft-stale-target-not-written.png"}));
+    ctx.run_ui(RawInput::default(), |ui| crate::control::drain(&mut app, ui.ctx())).textures_delta.clear();
+    assert!(shot.try_recv().is_err());
+    app.session.execute("file.new", &json!({"name": "New tab before capture"})).unwrap();
+    let input = RawInput {
+        events: vec![egui::Event::Screenshot {
+            viewport_id: ViewportId::ROOT,
+            user_data: egui::UserData::default(),
+            image: std::sync::Arc::new(egui::ColorImage::new([1, 1], vec![egui::Color32::WHITE])),
+        }],
+        ..Default::default()
+    };
+    ctx.run_ui(input, |ui| crate::control::drain(&mut app, ui.ctx())).textures_delta.clear();
+    assert!(shot.try_recv().unwrap().result.unwrap_err().contains("target changed"));
+}
+
+#[test]
 fn hidden_windows_answer_ui_inspection_without_a_frame() {
     let (ctx, mut app, w) = two_windows();
     let other = crate::windows::viewport(w);

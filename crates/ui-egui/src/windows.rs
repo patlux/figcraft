@@ -275,12 +275,15 @@ pub fn list(app: &FigApp) -> Value {
         ids.map(|id| {
             let mine = |d: &&DocState| app.windows.of(d.uid) == id;
             let shown = app.session.docs.iter().filter(mine).find(|d| Some(d.uid) == active_of(id));
+            let mut target = figcraft_engine::target::of(shown);
+            target["window"] = json!(id);
             json!({
                 "id": id,
                 "main": id == 0,
                 "title": title_of(shown),
                 "files": app.session.docs.iter().filter(mine).map(|d| d.doc.name.as_str()).collect::<Vec<_>>(),
                 "active": shown.map(|d| d.doc.name.as_str()),
+                "target": target,
                 "focused": id == app.windows.focused,
             })
         })

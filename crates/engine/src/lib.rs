@@ -49,6 +49,7 @@ pub mod snap;
 pub mod style_vars;
 pub mod synthetic;
 pub mod synthetic_ds;
+pub mod target;
 pub mod templates;
 pub mod textedit;
 pub mod textpreview;

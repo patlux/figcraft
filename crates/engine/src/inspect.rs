@@ -299,12 +299,13 @@ fn paints(p: &[figcraft_color::Paint]) -> Value {
 
 /// The whole document (current page in depth, other pages summarised).
 pub fn document(s: &Session, depth: usize, all_pages: bool) -> Value {
-    let Ok(ds) = s.ds() else { return json!({"documents": 0}) };
+    let Ok(ds) = s.ds() else { return json!({"documents": 0, "target": crate::target::of(None)}) };
     let doc = &ds.doc;
     let pages: Vec<Value> =
         doc.pages.iter().map(|p| if all_pages || *p == ds.page { node_json(doc, *p, depth) } else { node_json(doc, *p, 0) }).collect();
     json!({
         "name": doc.name,
+        "target": crate::target::of(Some(ds)),
         "path": ds.path,
         "dirty": ds.is_dirty(),
         "currentPage": ds.page,

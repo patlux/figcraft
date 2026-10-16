@@ -1,7 +1,8 @@
 # Local file synchronization
 
 Status: save-conflict protection implemented in the local task branch (2026-10-16).
-Automatic external refresh, guarded MCP document binding and generator adoption are not yet implemented.
+Guarded control targets are implemented in the local source. The paired bridge validates and pins them.
+Automatic external refresh and generator adoption are not yet implemented.
 No package or running installation changes as part of this source work.
 
 ## Protected saves
@@ -41,13 +42,33 @@ The archive loader retains its existing decompression and member limits.
 The generic low-level `write_file_atomic` API remains unguarded for callers without a document baseline.
 Exports and recovery copies are not a substitute for a tracked document save.
 
+## Guarded control targets
+
+Inspection exposes app-instance, document UID, path, revision and window identity.
+The control dispatcher validates a supplied target immediately before execution, including hidden-window execution.
+A revision is optional for identity-only calls. A stale supplied revision refuses the call.
+Guarded raw `ui.input` is refused because its events are deferred to a later frame.
+Legacy unguarded control clients retain their behavior. This is routing protection, not authentication.
+
+The paired local Python bridge requires app-side guards for mutations.
+On an older app, inspection remains available but mutation calls fail before forwarding.
+App restart, tab change, path change or closed window invalidates the pin until explicit reselection.
+Explicit window parameters cannot bypass the session reservation.
+Do not activate the new bridge alone against the installed baseline if live editing must remain available.
+
+Four UI regressions cover target changes, queued hidden-window calls and stale screenshot delivery.
+The tab-switch regression failed before the change. Ten window tests now pass.
+A headless regression checks revisions, document changes and refusal of app window targets.
+Nineteen bridge tests pass, including five target-validation tests that failed before the fix.
+These are synthetic dispatcher and transport tests, not a live app demonstration.
+
 ## Evidence
 
 - Four Engine conflict regressions fail on the previous implementation and pass with the fix.
 - Five Engine tests cover normal save, background save, missing/corrupt originals, Save As and repeated saves after open.
 - Eight format tests cover exact-byte baselines, competing threads, separate processes, busy locks, path aliases and invalid lock files.
 - A CLI regression checks native and JSON output refusal, preservation of existing bytes and explicit input/output updates.
-- Workspace: 2,372 passed, one failed, eight ignored.
+- Workspace after target validation: 2,377 passed, one failed, eight ignored.
 - The existing Contributors-table test still fails at 648 pt required versus 640 pt available. It was not changed.
 - Workspace clippy with warnings denied, formatting, layering and asset checks pass.
 - WASM checking stops before project code because the local toolchain lacks `wasm32-unknown-unknown` (`core`/`std`).

@@ -22,6 +22,8 @@ mod tools;
 
 #[cfg(test)]
 mod gradient_tests;
+#[cfg(test)]
+mod target_tests;
 
 pub use backend::{Attached, Backend, decode_data, page_children};
 pub use headless::Headless;

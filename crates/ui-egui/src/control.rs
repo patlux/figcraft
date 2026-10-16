@@ -61,6 +61,9 @@ pub struct PendingShot {
     pub since: f64,
     /// The window it captures.
     pub viewport: egui::ViewportId,
+    /// Guarded captures must still describe the same document when delivered.
+    pub target: Option<Value>,
+    pub window: u64,
 }
 
 /// How long a screenshot waits for the window to deliver it (the control server gives up then too).
@@ -88,7 +91,13 @@ pub fn drain(app: &mut FigApp, ctx: &Context) {
             if p.viewport != *vp {
                 return true;
             }
-            let res = save_color_image(img, &p.path).map(|_| json!({"path": p.path, "width": img.size[0], "height": img.size[1]}));
+            let checked = match &p.target {
+                Some(target) => crate::windows::as_window(app, p.window, |app| validate_target(app, &json!({"target": target})))
+                    .unwrap_or_else(|| Err("screenshot target window closed".into())),
+                None => Ok(()),
+            };
+            let res =
+                checked.and_then(|()| save_color_image(img, &p.path)).map(|_| json!({"path": p.path, "width": img.size[0], "height": img.size[1]}));
             let _ = p.reply.send(ControlReply { id: p.id.clone(), result: res });
             false
         });
@@ -110,10 +119,23 @@ pub fn drain(app: &mut FigApp, ctx: &Context) {
             }
             continue;
         }
+        if let Err(error) = validate_target(app, &r.params) {
+            let _ = r.reply.send(ControlReply { id: r.id, result: Err(error) });
+            continue;
+        }
         if r.method == "ui.screenshot" {
             let path = r.params.get("path").and_then(Value::as_str).unwrap_or("figcraft-screenshot.png").to_string();
             let viewport = ctx.viewport_id();
-            list.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(PendingShot { id: r.id, path, reply: r.reply, since: now, viewport });
+            let target = r.params.get("target").map(|_| figcraft_engine::target::of(app.session.ds().ok()));
+            list.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(PendingShot {
+                id: r.id,
+                path,
+                reply: r.reply,
+                since: now,
+                viewport,
+                target,
+                window: app.windows.current,
+            });
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
             continue;
         }
@@ -211,8 +233,26 @@ fn b(p: &Value, k: &str) -> bool {
     p.get(k).and_then(Value::as_bool).unwrap_or(false)
 }
 
+fn validate_target(app: &FigApp, params: &Value) -> Result<(), String> {
+    if let Some(expected) = params.get("target") {
+        if let Some(window) = expected.get("window")
+            && window.as_u64() != Some(app.windows.current)
+        {
+            return Err("target window changed; select the intended window again".into());
+        }
+        figcraft_engine::target::validate(&app.session, expected).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// Handle one control method (also used by tests and the headless snapshot tool).
 pub fn handle(app: &mut FigApp, ctx: &Context, method: &str, p: &Value) -> Result<Value, String> {
+    validate_target(app, p)?;
+    if method == "ui.input" && p.get("target").is_some() {
+        return Err(
+            "guarded raw UI input is deferred and cannot retain its document target; use engine commands or immediate ui.pointer/key/type".into()
+        );
+    }
     match method {
         "engine.execute" => {
             let cmd = p.get("command").and_then(Value::as_str).ok_or("`command` required")?;
@@ -231,7 +271,9 @@ pub fn handle(app: &mut FigApp, ctx: &Context, method: &str, p: &Value) -> Resul
         )),
         "document.inspect" => {
             let depth = p.get("depth").and_then(Value::as_u64).unwrap_or(8) as usize;
-            Ok(figcraft_engine::inspect::document(&app.session, depth, b(p, "allPages")))
+            let mut result = figcraft_engine::inspect::document(&app.session, depth, b(p, "allPages"));
+            result["target"]["window"] = json!(app.windows.current);
+            Ok(result)
         }
         "node.get" => {
             let id = p.get("id").and_then(figcraft_engine::params::id_of).ok_or("`id` required")?;

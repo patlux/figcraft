@@ -55,8 +55,6 @@ impl Headless {
     }
 
     fn execute(&mut self, cmd: &str, params: &Value) -> Result<Value, String> {
-        // What happened in a live session since the last call (latest presence only).
-        self.session.live_poll();
         let r = self.session.execute(cmd, params).map_err(|e| e.to_string());
         self.session.live_sync();
         // No UI: dialogs and panels requested by commands are dropped.
@@ -236,6 +234,14 @@ impl Headless {
 
 impl Backend for Headless {
     fn call(&mut self, method: &str, p: Value) -> Result<Value, String> {
+        // Apply inbound changes before validating a revision, never between validation and execution.
+        self.session.live_poll();
+        if let Some(expected) = p.get("target") {
+            if expected.get("window").is_some() {
+                return Err("headless sessions cannot accept an app window target".into());
+            }
+            figcraft_engine::target::validate(&self.session, expected).map_err(|e| e.to_string())?;
+        }
         match method {
             "engine.execute" => {
                 let cmd = p.get("command").and_then(Value::as_str).ok_or("`command` required")?.to_string();

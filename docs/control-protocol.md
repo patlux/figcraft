@@ -44,6 +44,17 @@ by these calls, so canvas geometry and focus information can reflect the last dr
 Requests to visible windows still wait for their frame. Hidden-window handlers retain the
 upstream panic/recovery guard.
 
+**Guarded targets (local fork).** `document.inspect` and each `window.list` entry expose a `target`:
+`{instance, document, path, revision, window}`. Pass it as `params.target` on later calls.
+The app validates it on the session thread immediately before dispatch, including hidden-window calls.
+A different process instance, active document, path, window or supplied revision is an error without dispatch.
+Omit only `revision` for an identity pin that survives your own edits. Keep the other fields unchanged.
+`instance` is routing metadata, not authentication. Legacy calls without a target retain their old behavior.
+A bridge can require guards for its own callers, but this is not access control for other local programs.
+After a deliberate Save As, open, close or tab switch, inspect and explicitly choose the new target.
+Guarded `ui.input` is refused: its deferred raw events cannot retain document identity until the next frame.
+Use engine commands or immediate `ui.pointer`, `ui.key` and `ui.type` instead.
+
 Coordinates are page units, y down. `x`/`y` in `node.set`/`node.create` are relative to the parent
 frame (groups have no coordinate space of their own).
 
