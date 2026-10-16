@@ -1580,6 +1580,8 @@ mod history_behaviour_tests;
 #[cfg(test)]
 mod html_codegen_tests;
 #[cfg(test)]
+mod id_params_behaviour_tests;
+#[cfg(test)]
 mod import_export_tests;
 #[cfg(test)]
 mod inspect_behaviour_tests;

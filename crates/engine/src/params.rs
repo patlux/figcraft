@@ -88,6 +88,23 @@ pub fn req_id(cmd: &str, p: &Value, key: &str) -> Result<NodeId> {
     id(p, key).ok_or_else(|| bad(cmd, format!("`{key}` must be a node id")))
 }
 
+/// An explicit optional layer id must parse, rather than silently selecting a default.
+/// Adapted from upstream PR #675 (9daf39e).
+pub fn opt_id(cmd: &str, p: &Value, key: &str) -> Result<Option<NodeId>> {
+    match get(p, key) {
+        None => Ok(None),
+        Some(v) => id_of(v).map(Some).ok_or_else(|| bad(cmd, format!("`{key}` must be a node id (got {v})"))),
+    }
+}
+
+/// An optional whole, non-negative index. Missing and null mean none.
+pub fn opt_index(cmd: &str, p: &Value, key: &str) -> Result<Option<usize>> {
+    match get(p, key) {
+        None => Ok(None),
+        Some(_) => req_index(cmd, p, key).map(Some),
+    }
+}
+
 /// `ids` (array), `id` (single), or the current selection.
 pub fn targets(s: &Session, p: &Value) -> Vec<NodeId> {
     if let Some(Value::Array(a)) = get(p, "ids") {
@@ -99,8 +116,23 @@ pub fn targets(s: &Session, p: &Value) -> Vec<NodeId> {
     s.selection()
 }
 
-/// Like [`targets`] but an empty result is an error.
+/// Like [`targets`] but invalid explicit ids and empty results are errors.
 pub fn req_targets(cmd: &str, s: &Session, p: &Value) -> Result<Vec<NodeId>> {
+    match get(p, "ids") {
+        Some(Value::Array(a)) => {
+            if let Some(v) = a.iter().find(|v| id_of(v).is_none()) {
+                return Err(bad(cmd, format!("`ids`: every entry must be a node id (got {v})")));
+            }
+        }
+        None => {
+            if let Some(v) = get(p, "id")
+                && id_of(v).is_none()
+            {
+                return Err(bad(cmd, format!("`id` must be a node id (got {v})")));
+            }
+        }
+        Some(v) => return Err(bad(cmd, format!("`ids` must be an array (got {v})"))),
+    }
     let t = targets(s, p);
     if t.is_empty() {
         return Err(EngineError::Disabled(cmd.to_string(), "nothing is selected (pass `ids`)".into()));

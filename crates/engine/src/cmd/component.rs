@@ -68,7 +68,7 @@ pub fn specs() -> Vec<CommandSpec> {
             let cmd = "instance.create";
             let c = req_id(cmd, p, "component")?;
             let page = s.page()?;
-            let parent = id(p, "parent").unwrap_or(page);
+            let parent = crate::params::opt_id(cmd, p, "parent")?.unwrap_or(page);
             let doc = s.doc_mut()?;
             let c = main_of(doc, c).ok_or_else(|| bad(cmd, "`component` must be a component or component set"))?;
             let (x, y) = match (num(p, "x"), num(p, "y")) {

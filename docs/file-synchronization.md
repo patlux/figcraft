@@ -150,7 +150,9 @@ These are synthetic dispatcher and transport tests, not a live app demonstration
 - Five Engine tests cover normal save, background save, missing/corrupt originals, Save As and repeated saves after open.
 - Eight format tests cover exact-byte baselines, competing threads, separate processes, busy locks, path aliases and invalid lock files.
 - A CLI regression checks native and JSON output refusal, preservation of existing bytes and explicit input/output updates.
-- Workspace after external refresh: 2,390 passed, one failed, eight ignored.
+- Workspace after selected upstream target guards: 2,400 passed, one failed, eight ignored.
+- Ten layer/document-index regressions pass. Seven failed before the selected upstream #675/#608 changes.
+- The [requirement/upstream audit](agent-workflow-audit.md) records selections, exclusions and remaining release work.
 - The existing Contributors-table test still fails at 648 pt required versus 640 pt available. It was not changed.
 - Workspace clippy with warnings denied, formatting, layering and asset checks pass.
 - WASM checking stops before project code because the local toolchain lacks `wasm32-unknown-unknown` (`core`/`std`).
