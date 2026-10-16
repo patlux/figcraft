@@ -30,7 +30,11 @@ The installed app and CLI still use that base. This audit does not claim install
 - Workspace clippy with warnings denied, formatting, layering and asset checks pass.
 - The WASM check cannot reach project code because the local toolchain lacks `wasm32-unknown-unknown` (`core`/`std`).
 - The bridge suite passes 19 tests. The infrastructure MCP check passes 12 configuration tests and two host-peer tests.
-- The native smoke passes with three reviewed captures in `/tmp/figcraft-native-sync-smoke-20261016-g`.
+- The native smoke passes again at source commit `8b8c57498296c46807f54f4f393b5eaa40358e86`.
+- Three reviewed 2400×1600 captures and JSON evidence are in `/tmp/figcraft-native-sync-smoke-20261016-final`.
+- That run reports minimized refresh without UI frames, adoption, conflict preservation and three verified screenshots.
+- All 39 MCP tests pass after the final initialization-instruction changes.
+- Installed bundle metadata and resolved app/CLI links still select `76c4e669e62f984c63be24aa07fc3aaa05e9680e`.
 - The skill prose checker reports zero findings.
 
 The full workspace still has one failure. All tests and assertions remain in place.
