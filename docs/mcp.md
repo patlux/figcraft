@@ -26,6 +26,17 @@ If that connection cannot be established, the error says the request was not sen
 A connection the app closed while it sat idle is noticed before the next request is written and
 replaced then, so a pause between calls is not an error.
 
+### Local fork: file status
+
+`file_status` calls the read-only `file.status` command.
+It checks exact disk bytes and compares the native design with the live document.
+Use `savedAndCurrent: true` as point-in-time evidence after a save.
+`dirty: false` alone does not prove disk agreement.
+Design hashes include images but exclude the current page, thumbnail and history.
+A history-only edit keeps `savedAndCurrent` false until a successful save.
+The tool does not refresh, merge or overwrite anything.
+See [file synchronization](file-synchronization.md) for target checks and writer-lock limits.
+
 ### Fonts
 
 The headless server lays text out with the same fonts as the app: the fonts built into FigCraft

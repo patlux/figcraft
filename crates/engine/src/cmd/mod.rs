@@ -76,6 +76,7 @@ fn registry() -> &'static Registry {
         list.extend(section::specs());
         list.extend(layout::specs());
         list.extend(file::specs());
+        list.extend(crate::file_state::specs());
         list.extend(page::specs());
         list.extend(view::specs());
         list.extend(text::specs());

@@ -21,6 +21,23 @@ A conversion or a new generator document has no baseline for an existing output,
 This is a compatibility change for scripts that repeatedly wrote the same candidate filename.
 Generate unique candidate paths instead. Existing app windows do not refresh automatically yet.
 
+## Current file status
+
+`file.status` (MCP `file_status`) reads and validates the current native file without changing the live document.
+It returns the exact saved-byte baseline and the current disk hash.
+It distinguishes current, changed, missing, invalid, unreadable and path-changed files.
+Unsaved and branch tabs have separate states.
+
+`designMatchesDisk` compares deterministic native design fingerprints, including image bytes and published libraries.
+These fingerprints exclude the selected page, thumbnail and version history.
+`savedAndCurrent` also requires a clean live document and the saved-byte baseline.
+Thus design equality alone does not claim that version-history edits reached disk.
+The response is a point-in-time observation. It does not reserve the file or guarantee future agreement.
+Status calls preserve previews, history and revision. They do not refresh the document.
+
+Three status regressions failed before implementation. Four Engine tests now cover disk changes, errors, history, previews and image fingerprints.
+An MCP regression checks the tool response and read-only annotation.
+
 ## Coordination and limits
 
 Participating writers acquire a nonblocking OS lock on a persistent sibling file named `<destination>.figcraft-lock`.
@@ -68,7 +85,7 @@ These are synthetic dispatcher and transport tests, not a live app demonstration
 - Five Engine tests cover normal save, background save, missing/corrupt originals, Save As and repeated saves after open.
 - Eight format tests cover exact-byte baselines, competing threads, separate processes, busy locks, path aliases and invalid lock files.
 - A CLI regression checks native and JSON output refusal, preservation of existing bytes and explicit input/output updates.
-- Workspace after target validation: 2,377 passed, one failed, eight ignored.
+- Workspace after file-status support: 2,382 passed, one failed, eight ignored.
 - The existing Contributors-table test still fails at 648 pt required versus 640 pt available. It was not changed.
 - Workspace clippy with warnings denied, formatting, layering and asset checks pass.
 - WASM checking stops before project code because the local toolchain lacks `wasm32-unknown-unknown` (`core`/`std`).

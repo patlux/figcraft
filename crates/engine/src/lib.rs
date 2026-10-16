@@ -25,6 +25,7 @@ pub mod devcompare;
 pub mod devinspect;
 pub mod distance;
 pub mod drop;
+pub mod file_state;
 pub mod guard;
 pub mod guides;
 pub mod inspect;
@@ -858,6 +859,10 @@ impl Session {
     /// as it was.
     pub fn execute(&mut self, id: &str, params: &Value) -> Result<Value> {
         let spec = find_command(id).ok_or_else(|| EngineError::UnknownCommand(id.to_string()))?;
+        // An observation must not end previews, sync branches, or invalidate the target it returns.
+        if id == "file.status" {
+            return guard::run(id, || (spec.run)(self, params));
+        }
         // Revert replaces the document's uid: refuse before ending previews or syncing branches.
         if id == "file.revert" && self.live().doc_uid.is_some() {
             return Err(EngineError::Disabled(id.into(), "leave the live session before reverting to the saved file".into()));
@@ -1533,6 +1538,8 @@ mod fig_export_tests;
 mod fig_import_tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod file_conflict_tests;
+#[cfg(test)]
+mod file_state_tests;
 #[cfg(test)]
 mod frame_guides_tests;
 #[cfg(test)]
