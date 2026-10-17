@@ -308,7 +308,6 @@ pub fn document(s: &Session, depth: usize, all_pages: bool) -> Value {
         "target": crate::target::of(Some(ds)),
         "path": ds.path,
         "dirty": ds.is_dirty(),
-        "externalFile": ds.external_file_state,
         "lastExternalRecovery": ds.external_recovery,
         "currentPage": ds.page,
         "selection": ds.selection,

@@ -139,119 +139,70 @@ fn guarded_screenshot_refuses_changed_document_when_capture_arrives() {
     assert!(shot.try_recv().unwrap().result.unwrap_err().contains("target changed"));
 }
 
-#[test]
-fn hidden_window_adopts_candidate_in_place_without_changing_focus_or_other_document() {
-    let (ctx, mut app, w) = two_windows();
-    let dir = std::env::temp_dir().join(format!("figcraft-hidden-adopt-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("original.figcraft");
-    let candidate = dir.join("candidate.figcraft");
-    let saved = request(&mut app, "engine.execute", json!({"window": w, "command": "file.save", "params": {"path": path}}));
-    logic(&ctx, &mut app, &[ViewportId::ROOT, crate::windows::viewport(w)]);
-    assert!(saved.try_recv().unwrap().result.is_ok());
-    let mut generated = Session::new();
-    generated.execute("file.rename", &json!({"name": "Generated hidden"})).unwrap();
-    generated.execute("file.save", &json!({"path": candidate})).unwrap();
-    let status = request(&mut app, "engine.execute", json!({"window": w, "command": "file.status"}));
-    logic(&ctx, &mut app, &[ViewportId::ROOT, crate::windows::viewport(w)]);
-    let status = status.try_recv().unwrap().result.unwrap();
-    assert_eq!(status["target"]["window"], w);
-    let (_, candidate_baseline) = figcraft_format::file_sync::read(&candidate).unwrap();
-    let focused = app.windows.focused;
-    let adoption = request(
-        &mut app,
-        "engine.execute",
-        json!({"window": w, "target": status["target"], "command": "file.adopt", "params": {
-            "target": status["target"], "candidate": candidate, "candidateSha256": candidate_baseline.sha256,
-            "diskSha256": status["disk"]["sha256"], "operation": "hidden-window-test"
-        }}),
-    );
-    logic(&ctx, &mut app, &[ViewportId::ROOT, crate::windows::viewport(w)]);
-    let result = adoption.try_recv().unwrap().result.unwrap();
-    assert_eq!(result["target"]["document"], status["target"]["document"]);
-    assert_eq!(result["target"]["window"], w);
-    assert_eq!(app.windows.focused, focused);
-    assert_eq!(app.session.ds().unwrap().doc.name, "B");
-    let inspected = request(&mut app, "document.inspect", json!({"window": w}));
-    logic(&ctx, &mut app, &[ViewportId::ROOT, crate::windows::viewport(w)]);
-    assert_eq!(inspected.try_recv().unwrap().result.unwrap()["name"], "Generated hidden");
-    assert_eq!(figcraft_engine::cmd::file::load(path.to_str().unwrap()).unwrap().0.name, "Generated hidden");
-    std::fs::remove_dir_all(dir).unwrap();
-}
-
-#[test]
-fn external_poll_refreshes_hidden_tab_and_retains_dirty_conflict_without_focus_change() {
-    let (ctx, mut app, w) = two_windows();
-    let dir = std::env::temp_dir().join(format!("figcraft-hidden-refresh-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("original.figcraft");
-    let saved = request(&mut app, "engine.execute", json!({"window": w, "command": "file.save", "params": {"path": path}}));
-    logic(&ctx, &mut app, &[ViewportId::ROOT, crate::windows::viewport(w)]);
-    assert!(saved.try_recv().unwrap().result.is_ok());
-    let mut external = Session::empty();
-    external.execute("file.open", &json!({"path": path})).unwrap();
-    external.execute("file.rename", &json!({"name": "External hidden"})).unwrap();
-    external.execute("file.save", &json!({})).unwrap();
-    let focused = app.windows.focused;
-    let index = app.session.docs.iter().position(|d| d.doc.name == "A").unwrap();
-    app.external_poll_cursor = index;
-    app.next_external_poll = None;
-    let mut input = RawInput { time: Some(10.0), ..Default::default() };
-    for id in [ViewportId::ROOT, crate::windows::viewport(w)] {
-        input.viewports.insert(id, ViewportInfo { occluded: Some(true), ..Default::default() });
-    }
-    let input_request = request(&mut app, "ui.input", json!({"window": w, "events": [{"text": "pending field input"}]}));
-    logic(&ctx, &mut app, &[ViewportId::ROOT, crate::windows::viewport(w)]);
-    assert!(input_request.try_recv().unwrap().result.is_ok());
-    let _ = ctx.run_logic(&input, |ctx| app.external_file_tick(ctx));
-    assert_eq!(app.session.docs[index].doc.name, "A", "deferred input prevents automatic replacement");
-    assert_eq!(app.session.docs[index].external_file_state.as_ref().unwrap()["state"], "deferred");
-    let target = figcraft_engine::target::of(Some(&app.session.docs[index]));
-    let guarded = request(&mut app, "engine.execute", json!({"window": w, "command": "file.refresh", "params": {"target": target}}));
-    logic(&ctx, &mut app, &[ViewportId::ROOT, crate::windows::viewport(w)]);
-    assert!(guarded.try_recv().unwrap().result.unwrap_err().contains("UI editing"));
-    assert!(!crate::windows::take_input(&mut app, crate::windows::viewport(w)).is_empty());
-    app.external_poll_cursor = index;
-    app.next_external_poll = Some(std::time::Instant::now());
-    let _ = ctx.run_logic(&input, |ctx| app.external_file_tick(ctx));
-    assert_eq!(app.session.docs[index].doc.name, "External hidden");
-    assert_eq!(app.session.docs[index].external_file_state.as_ref().unwrap()["state"], "refreshed");
-    assert_eq!(app.session.ds().unwrap().doc.name, "B");
-    assert_eq!(app.windows.focused, focused);
-    let edit = request(&mut app, "engine.execute", json!({"window": w, "command": "file.rename", "params": {"name": "Unsaved local"}}));
-    logic(&ctx, &mut app, &[ViewportId::ROOT, crate::windows::viewport(w)]);
-    assert!(edit.try_recv().unwrap().result.is_ok());
-    external.execute("file.rename", &json!({"name": "Second external"})).unwrap();
-    external.execute("file.save", &json!({})).unwrap();
-    app.external_poll_cursor = index;
-    input.time = Some(20.0);
-    app.next_external_poll = Some(std::time::Instant::now());
-    let _ = ctx.run_logic(&input, |ctx| app.external_file_tick(ctx));
-    assert_eq!(app.session.docs[index].doc.name, "Unsaved local");
-    assert_eq!(app.session.docs[index].external_file_state.as_ref().unwrap()["state"], "conflict");
-    assert_eq!(figcraft_engine::cmd::file::load(path.to_str().unwrap()).unwrap().0.name, "Second external");
-    assert_eq!(app.windows.focused, focused);
-    std::fs::remove_dir_all(dir).unwrap();
-}
-
-#[test]
-fn pending_file_drops_defer_external_refresh_in_every_window() {
-    let (ctx, mut app, w) = two_windows();
+/// A saved synthetic file shown in hidden window `w`, changed by another writer afterwards.
+fn externally_changed(app: &mut FigApp, ctx: &egui::Context, w: u64, name: &str) -> (std::path::PathBuf, Session) {
     let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    let dir = std::env::temp_dir().join(format!("figcraft-pending-refresh-{}-{stamp}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("figcraft-{name}-{}-{stamp}", std::process::id()));
     std::fs::create_dir(&dir).unwrap();
     let path = dir.join("original.figcraft");
-    let saved = request(&mut app, "engine.execute", json!({"window": w, "command": "file.save", "params": {"path": path}}));
-    let hidden = [ViewportId::ROOT, crate::windows::viewport(w)];
-    logic(&ctx, &mut app, &hidden);
+    let saved = request(app, "engine.execute", json!({"window": w, "command": "file.save", "params": {"path": path}}));
+    logic(ctx, app, &[ViewportId::ROOT, crate::windows::viewport(w)]);
     saved.try_recv().unwrap().result.unwrap();
     let mut external = Session::empty();
     external.execute("file.open", &json!({"path": path})).unwrap();
-    external.execute("file.rename", &json!({"name": "External while drop waits"})).unwrap();
+    external.execute("file.rename", &json!({"name": format!("External {name}")})).unwrap();
+    external.execute("file.save", &json!({})).unwrap();
+    (path, external)
+}
+
+#[test]
+fn explicit_refresh_in_a_hidden_window_keeps_focus_and_conflicts() {
+    let (ctx, mut app, w) = two_windows();
+    let hidden = [ViewportId::ROOT, crate::windows::viewport(w)];
+    let (path, mut external) = externally_changed(&mut app, &ctx, w, "hidden");
+    let index = app.session.docs.iter().position(|d| d.uid == app.windows.list[0].docs[0]).unwrap();
+    let focused = app.windows.focused;
+    // The app does not watch files: logic alone leaves the external change unseen.
+    logic(&ctx, &mut app, &hidden);
+    assert_eq!(app.session.docs[index].doc.name, "A");
+    let target = figcraft_engine::target::of(Some(&app.session.docs[index]));
+    let refreshed = request(&mut app, "engine.execute", json!({"window": w, "command": "file.refresh", "params": {"target": target}}));
+    logic(&ctx, &mut app, &hidden);
+    let result = refreshed.try_recv().unwrap().result.unwrap();
+    assert_eq!(result["state"], "refreshed");
+    assert_eq!(result["target"]["window"], w);
+    assert_eq!(app.session.docs[index].doc.name, "External hidden");
+    assert_eq!(app.session.ds().unwrap().doc.name, "B", "the main window keeps its document");
+    assert_eq!(app.windows.focused, focused);
+    let edit = request(&mut app, "engine.execute", json!({"window": w, "command": "file.rename", "params": {"name": "Unsaved local"}}));
+    logic(&ctx, &mut app, &hidden);
+    edit.try_recv().unwrap().result.unwrap();
+    external.execute("file.rename", &json!({"name": "Second external"})).unwrap();
     external.execute("file.save", &json!({})).unwrap();
     let disk = std::fs::read(&path).unwrap();
-    let index = app.session.docs.iter().position(|d| d.doc.name == "A").unwrap();
+    let target = figcraft_engine::target::of(Some(&app.session.docs[index]));
+    let conflict = request(&mut app, "engine.execute", json!({"window": w, "command": "file.refresh", "params": {"target": target}}));
+    logic(&ctx, &mut app, &hidden);
+    assert_eq!(conflict.try_recv().unwrap().result.unwrap()["state"], "conflict");
+    assert_eq!(app.session.docs[index].doc.name, "Unsaved local");
+    assert_eq!(std::fs::read(&path).unwrap(), disk, "a conflict never rewrites the external file");
+    std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+}
+
+#[test]
+fn pending_file_drops_defer_explicit_refresh_in_every_window() {
+    let (ctx, mut app, w) = two_windows();
+    let hidden = [ViewportId::ROOT, crate::windows::viewport(w)];
+    let (path, _external) = externally_changed(&mut app, &ctx, w, "drop");
+    let disk = std::fs::read(&path).unwrap();
+    let index = app.session.docs.iter().position(|d| d.uid == app.windows.list[0].docs[0]).unwrap();
     let focused = app.windows.focused;
+    let refresh = |app: &mut FigApp| {
+        let target = figcraft_engine::target::of(Some(&app.session.docs[index]));
+        let reply = request(app, "engine.execute", json!({"window": w, "command": "file.refresh", "params": {"target": target}}));
+        logic(&ctx, app, &hidden);
+        reply.try_recv().unwrap().result
+    };
     for queued_window in [0, w] {
         crate::windows::as_window(&mut app, queued_window, |app| {
             let ds = app.session.ds().unwrap();
@@ -262,62 +213,16 @@ fn pending_file_drops_defer_external_refresh_in_every_window() {
                 target: Some(crate::pending_open::ImportTarget { uid: ds.uid, page: ds.page, name: ds.doc.name.clone() }),
             });
         });
-        app.external_poll_cursor = index;
-        app.next_external_poll = None;
-        let _ = ctx.run_logic(&RawInput::default(), |ctx| app.external_file_tick(ctx));
-        assert_eq!(app.session.docs[index].doc.name, "A", "pending drop in window {queued_window} blocks replacement");
-        assert_eq!(app.session.docs[index].external_file_state.as_ref().unwrap()["state"], "deferred");
-        for command in ["file.refresh", "file.adopt"] {
-            let target = figcraft_engine::target::of(Some(&app.session.docs[index]));
-            let guarded = request(&mut app, "engine.execute", json!({"window": w, "command": command, "params": {"target": target}}));
-            logic(&ctx, &mut app, &hidden);
-            assert!(guarded.try_recv().unwrap().result.unwrap_err().contains("UI editing"));
-        }
+        assert!(refresh(&mut app).unwrap_err().contains("UI editing"), "pending drop in window {queued_window} blocks replacement");
+        assert_eq!(app.session.docs[index].doc.name, "A");
         assert_eq!(std::fs::read(&path).unwrap(), disk);
         crate::windows::as_window(&mut app, queued_window, |app| app.ui.pending_opens.clear());
     }
-    app.external_poll_cursor = index;
-    app.next_external_poll = None;
-    let _ = ctx.run_logic(&RawInput::default(), |ctx| app.external_file_tick(ctx));
-    assert_eq!(app.session.docs[index].doc.name, "External while drop waits");
-    assert_eq!(app.session.docs[index].external_file_state.as_ref().unwrap()["state"], "refreshed");
+    assert_eq!(refresh(&mut app).unwrap()["state"], "refreshed");
+    assert_eq!(app.session.docs[index].doc.name, "External drop");
     assert_eq!(app.session.ds().unwrap().doc.name, "B");
     assert_eq!(app.windows.focused, focused);
-    std::fs::remove_dir_all(dir).unwrap();
-}
-
-#[test]
-fn external_poll_does_not_reread_an_unchanged_settled_file() {
-    let (ctx, mut app, w) = two_windows();
-    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    let dir = std::env::temp_dir().join(format!("figcraft-poll-stamp-{}-{stamp}", std::process::id()));
-    std::fs::create_dir(&dir).unwrap();
-    let path = dir.join("original.figcraft");
-    let lock = dir.join("original.figcraft.figcraft-lock");
-    let saved = request(&mut app, "engine.execute", json!({"window": w, "command": "file.save", "params": {"path": path}}));
-    logic(&ctx, &mut app, &[ViewportId::ROOT, crate::windows::viewport(w)]);
-    saved.try_recv().unwrap().result.unwrap();
-    // Metadata of a file written within the coarsest timestamp granularity is never trusted.
-    std::thread::sleep(std::time::Duration::from_millis(2100));
-    let index = app.session.docs.iter().position(|d| d.doc.name == "A").unwrap();
-    let poll = |app: &mut FigApp| {
-        app.external_poll_cursor = index;
-        app.next_external_poll = None;
-        let _ = ctx.run_logic(&RawInput::default(), |ctx| app.external_file_tick(ctx));
-        app.session.docs[index].external_file_state.as_ref().unwrap()["state"].as_str().unwrap().to_owned()
-    };
-    assert_eq!(poll(&mut app), "current");
-    // A full check takes the writer lock, which leaves its empty lock file behind.
-    std::fs::remove_file(&lock).unwrap();
-    assert_eq!(poll(&mut app), "current");
-    assert!(!lock.exists(), "an unchanged, settled file is not locked and read again");
-    let mut external = Session::empty();
-    external.execute("file.open", &json!({"path": path})).unwrap();
-    external.execute("file.rename", &json!({"name": "External after unchanged polls"})).unwrap();
-    external.execute("file.save", &json!({})).unwrap();
-    assert_eq!(poll(&mut app), "refreshed");
-    assert_eq!(app.session.docs[index].doc.name, "External after unchanged polls");
-    std::fs::remove_dir_all(dir).unwrap();
+    std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
 }
 
 #[test]

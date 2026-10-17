@@ -1,12 +1,8 @@
 # Local file synchronization
 
-Status: synchronization source is on local `main`, together with upstream `d1d8c3f` (2026-10-16).
-The local source supports guarded control targets. The paired bridge validates and pins them.
-The source also supports controlled generator adoption and automatic external refresh.
-A bounded macOS native smoke test now verifies refresh, adoption and conflict retention with window screenshots.
-
-Installation and the configured Pi-to-bridge-to-app integration test remain pending.
-No package or running installation changes as part of this source work.
+Status: slim local fork (2026-10-17). It keeps protected saves, guarded control targets, `file.status` and an explicit `file.refresh`.
+The app does not watch or poll files. An agent calls `file.refresh` after an external write.
+Generator adoption (`file.adopt`, `file.operationStatus`) and automatic polling are removed. See [Removed features](#removed-features).
 
 ## Protected saves
 
@@ -17,12 +13,11 @@ The CLI's native script output uses the same save path. Native JSON output uses 
 A missing, changed or inaccessible original produces an error instead of a replacement.
 The live document, unsaved changes and undo history remain available.
 A new destination must not exist. Save As does not overwrite an unrelated existing file, even after a file-picker confirmation.
-Use a separate path to preserve both versions. There is no force-overwrite option in this first slice.
+Use a separate path to preserve both versions. There is no force-overwrite option.
 
 The CLI can update its explicit `--in` file through `--out` when the baseline still matches.
 A conversion or a new generator document has no baseline for an existing output, so that output is refused.
-This is a compatibility change for scripts that repeatedly wrote the same candidate filename.
-Generate unique candidate paths instead. The desktop poller can refresh clean, noninteractive native documents.
+Generate unique output paths, or write an open file only as described in [External writes](#external-writes).
 
 ## Current file status
 
@@ -38,91 +33,43 @@ Thus design equality alone does not claim that version-history edits reached dis
 The response is a point-in-time observation. It does not reserve the file or guarantee future agreement.
 Status calls preserve previews, history and revision. They do not refresh the document.
 
-Three status regressions failed before implementation. Four Engine tests now cover disk changes, errors, history, previews and image fingerprints.
-An MCP regression checks the tool response and read-only annotation.
+## External writes
 
-## Controlled generator adoption
+The app reads a file only when it opens, saves or explicitly refreshes it. It does not detect external changes by itself.
+Use this procedure when an external program must change a file that is open in the app:
 
-Generate a separate native candidate. Never overwrite an open original.
-Call `file.status` for the current target, revision and disk SHA-256.
-Call `file.adopt` with that target, `candidate`, `candidateSha256`, `diskSha256` and a unique `operation` ID.
-MCP exposes this as `adopt_file`.
+1. Call `file_status` for the open document. Require `dirty: false`.
+2. Write the file with the external program.
+3. Call `refresh_file` with a fresh `target` from `file_status` or `inspect_document`.
+4. Require `state: refreshed`, then call `file_status` and require `savedAndCurrent: true`.
 
-The app requires a clean, noninteractive main document with a saved `.figcraft` baseline.
-It refuses active previews, collaboration, open branch tabs and candidates with branches.
-It also refuses repaired candidates, changed hashes, busy locks and full version history.
-Adoption cannot run inside a rollback-capable command group.
+If the document has local edits, `refresh_file` reports `conflict` and keeps both sides.
+A later save of the stale live document is refused, because the disk no longer matches its baseline.
+Save the live side to a new path before any user-authorized resolution.
 
-Both participating-writer locks stay held during validation and persistence.
-Before replacement, the app saves the complete previous document to `<original>.recovery-<operation>.figcraft`.
-That path must not exist. A failed later step can leave the recovery copy, but does not remove it.
-The app retains existing versions and candidate versions without deleting old entries.
-It records the previous design and an operation receipt as named versions.
-Then it atomically writes the prepared archive and installs it in the same document UID.
-It preserves the view and creates one undo step. Undo does not rewrite disk until a later save.
+## Explicit refresh
 
-After a lost reply, call `file.operationStatus` (MCP `file_operation_status`). Never replay automatically.
-`resultPresent` requires the retained receipt, matching design, current saved baseline and disk agreement.
-`changedOrUnknown` and `unknown` do not prove failure and do not authorize a retry.
-Receipts survive reopen through native version history, but users can delete them.
-This is outcome observation, not a durable exactly-once transaction protocol.
-A crash after disk replacement but before live installation still needs restart/reopen recovery.
-The existing advisory-lock and power-loss limits below apply.
-
-Two adoption regressions failed before implementation. Four Engine tests cover recovery, both histories, undo and post-reopen outcome observation.
-They also cover changed targets/files, local edits, previews, full history, busy locks, invalid candidates and recovery-write failure.
-A hidden-window dispatcher test verifies in-place adoption without changing focus or another window's document.
-These tests are not a demonstration in the installed native app.
-
-## External-file refresh
-
-The desktop checks one open tab per second, including tabs in hidden windows.
-The first check after an open, save or refresh reads exact bytes instead of trusting mtime or size alone.
-The polling clock uses a monotonic wall clock: egui's UI time stops while hidden-window logic runs.
-With many tabs, each tab waits for its next turn.
-
-A full read that matches the saved baseline records the file's metadata from before that read.
-The metadata includes device, inode, size, modification time and status change time.
-While the baseline and this metadata stay the same, later polls skip the read and hash.
-A replacement changes the inode. An in-place write changes the status change time, which ordinary programs cannot restore.
-The poller does not record metadata with timestamps less than two seconds old. Coarse file-system timestamps can hide a later same-size write.
-Explicit `file.status` and `file.refresh` calls always read the exact bytes.
-
-A changed native `.figcraft` file refreshes only when the document is clean and noninteractive.
-Pending raw input, UI fields, dialogs and queued file imports defer replacement. Local edits produce a conflict.
-Queued imports in another pane also block replacement, including the main pane during a hidden-window call.
-Missing, invalid, unreadable and path-changed files remain untouched.
-Collaboration and open branch tabs defer replacement too.
-
-The explicit `file.refresh` command (MCP `refresh_file`) applies the same document checks.
+`file.refresh` (MCP `refresh_file`) loads a changed native `.figcraft` file into the same open document.
+It requires a target from `file.status` or `document.inspect`. A stale target is refused.
+It runs only when the document is clean and noninteractive.
+Pending raw input, UI fields, dialogs and queued file imports in any window refuse the call.
+Local edits produce a conflict. Missing, invalid, unreadable and path-changed files remain untouched.
+Collaboration, previews and open branch tabs refuse replacement too.
 
 Refresh retains a complete prior recovery file and one undo step.
 It installs the external versions and branches, preserving document UID, page where possible and view.
-Old version/branch history remains in the recovery file rather than silently modifying the newly loaded file.
+Old version and branch history remain in the recovery file rather than in the newly loaded file.
 The external file is never rewritten during refresh. No viewport receives a focus command.
-`document.inspect.externalFile` exposes the last polling result, and `lastExternalRecovery` names the retained prior file.
-`file.status` always makes a fresh observation.
+`document.inspect.lastExternalRecovery` names the retained prior file.
 
-Two Engine refresh regressions failed before implementation and now pass.
-A hidden-window test checks clean refresh, local conflict and deferred-input refusal without a focus change.
-Its first implementation exposed a stopped UI-clock bug. The monotonic-clock fix makes subsequent hidden polls run.
+Engine regressions cover clean refresh, history retention, undo, local conflicts, corrupt and missing files, and previews.
+A hidden-window test checks refresh without a frame or a focus change, and a retained local conflict.
+Another window test checks that queued imports in the main window or another window refuse the call.
 
-The upstream merge adds a regression for queued imports in the main pane or another pane.
-It fails before the replacement guard and passes after it. All 13 window tests pass.
-These are synthetic dispatcher tests, not native runtime evidence.
-
-The installed `8a59c3a` build read and hashed every open file on each poll turn.
-A 211 MB document then kept the main thread about 56% busy, with stalls of over one second.
-An Engine regression checks the metadata precheck with replacement, same-size in-place writes, fresh timestamps and new baselines.
-A window regression fails before the precheck: its unchanged second poll took the writer lock and read again.
-After the change, that poll skips the read, and an external replacement still refreshes the document.
-
-Current limits: full reads and changed-file parsing run synchronously on the session thread.
-The file-size bound limits bytes, not latency. The first poll after an open, save or refresh can stall the UI for large documents.
-Changed, conflicting, deferred and invalid files are read again on each turn until their state changes.
-The metadata precheck assumes a local file system with a reliable clock. Network file systems are not verified.
+Limits: refresh reads, parses and installs the file synchronously on the session thread.
+The file-size bound limits bytes, not latency. A large document can stall the UI during that call.
 Recovery files are retained and are not automatically pruned.
-Only native `.figcraft` originals auto-refresh. Other formats need an explicit separate native candidate.
+Only native `.figcraft` originals refresh. Other formats need a separate native file.
 
 ## Coordination and limits
 
@@ -157,30 +104,25 @@ The paired local Python bridge requires app-side guards for mutations.
 On an older app, inspection remains available but mutation calls fail before forwarding.
 App restart, tab change, path change or closed window invalidates the pin until explicit reselection.
 Explicit window parameters cannot bypass the session reservation.
-Do not activate the new bridge alone against the installed baseline if live editing must remain available.
 
-Four UI regressions cover target changes, queued hidden-window calls and stale screenshot delivery.
-The tab-switch regression failed before the change. Ten window tests now pass.
+UI regressions cover target changes, queued hidden-window calls and stale screenshot delivery.
 A headless regression checks revisions, document changes and refusal of app window targets.
-Nineteen bridge tests pass, including five target-validation tests that failed before the fix.
 These are synthetic dispatcher and transport tests, not a live app demonstration.
 
-## Evidence
+## Removed features
 
-- Four Engine conflict regressions fail on the previous implementation and pass with the fix.
-- Five Engine tests cover normal save, background save, missing/corrupt originals, Save As and repeated saves after open.
-- Eight format tests cover exact-byte baselines, competing threads, separate processes, busy locks, path aliases and invalid lock files.
-- A CLI regression checks native and JSON output refusal, preservation of existing bytes and explicit input/output updates.
-- Workspace after the upstream merge: 2,428 passed, zero failed, eight ignored.
-- The earlier synchronization branch recorded 2,400 passed, one failed and eight ignored.
-- Ten layer/document-index regressions pass. Seven failed before the selected upstream #675/#608 changes.
-- The [requirement/upstream audit](agent-workflow-audit.md) records selections, exclusions and remaining release work.
-- Upstream resolves the previous Contributors-table failure (648 pt required versus 640 pt available). The test now passes.
-- Workspace clippy with warnings denied, formatting, layering and asset checks pass.
-- WASM checking stops before project code because the local toolchain lacks `wasm32-unknown-unknown` (`core`/`std`).
-- A timed-out workspace build left invalid incremental objects. Workspace-scoped `mbx clean` followed by rebuilding resolved the linker errors.
+The fork removed these features on 2026-10-17:
 
-### Native smoke test
+- Automatic polling. The app checked one open tab per second, including hidden tabs.
+  The installed `8a59c3a` build read and hashed the whole file on each turn.
+  A 211 MB document kept the main thread about 56% busy, with stalls of over one second.
+  A metadata precheck in `9cf8944` reduced that cost, but kept a permanent background task with its own limits.
+- Generator adoption (`file.adopt`, MCP `adopt_file`) and its receipts (`file.operationStatus`, MCP `file_operation_status`).
+  The explicit procedure in [External writes](#external-writes) replaces it.
+  It has no separate candidate file, no operation receipt and no recovery copy of the prior file before the external write.
+  `refresh_file` still keeps a recovery copy of the prior live document.
+
+## Native smoke test
 
 The example uses the real eframe/WGPU event loop and `FigApp` with `NoServices`.
 It creates synthetic files in a new evidence directory. It opens no listener and loads no preferences or recovery files.
@@ -191,28 +133,12 @@ mbx run --locked -p figcraft --example sync_smoke -- /tmp/figcraft-sync-new-run
 ```
 
 The absolute evidence directory must not exist. The example has a 30-second deadline and returns nonzero on failure.
-It minimizes its own window, changes the file externally and verifies refresh before another UI frame draws.
-Then it restores the window, adopts a separate candidate and introduces a local/external conflict.
-It checks the receipt and saved state. A refused conflicting save must leave the external bytes unchanged.
+It minimizes its own window, changes the file externally and refreshes it explicitly before another UI frame draws.
+Then it restores the window, refreshes a second external change and introduces a local/external conflict.
+A refused conflicting save must leave the external bytes unchanged.
 Three window captures must contain the expected canvas colors. The native window needs enough visible space to draw those captures.
 
-The merged-source run on 2026-10-16 passed before the merge commit in `/tmp/figcraft-main-upstream-smoke-20261016`.
-Its three reviewed images are 2400×1600. The run records 231 UI frames:
-
-- `hiddenRefresh` and `noFramesDuringHiddenRefresh` are true.
-- `adoption` and `conflictPreserved` are true. All three screenshot pixel checks pass.
-- The first screenshot shows the updated purple design and text in the existing document.
-- The second shows the adopted green design.
-- The third preserves the green live design, marks local work unsaved and shows the conflict message.
-
-The renderer completes asynchronously. An early capture showed the old canvas under the new document title.
-Later captures showed the updated canvas without reopening. The example waits two seconds before capture and checks the captured pixels.
-An intermediate run timed out before the second screenshot. Another produced a narrow window that was unsuitable for visual review.
-The final example fixes its window size and refuses undersized captures. It does not change the host window manager.
-
-Earlier committed-source evidence remains in `/tmp/figcraft-native-sync-smoke-20261016-final`.
-Workspace, clippy and WASM logs for the merge use the `/tmp/figcraft-main-merge-` prefix.
-
+The renderer completes asynchronously. A new document title can appear before the new canvas pixels.
+The example waits two seconds before capture and checks the captured pixels.
 This proves native behavior for the synthetic fixture, not large-file latency or Figma parity.
 The example calls Engine commands directly. It does not test the installed app, bridge relay or packaged CLI together.
-No package pin, installation or running user document changed.

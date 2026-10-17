@@ -1,48 +1,33 @@
 //! External native-file updates: refresh only clean, noninteractive documents; retain recovery.
 
-use crate::{DocState, EngineError, Result, Session, spec};
-use figcraft_format::file_sync::Stamp;
+use crate::{EngineError, Result, Session, spec};
 use serde_json::{Value, json};
-use std::time::SystemTime;
-
-/// The desktop poller's cheap check before an exact-byte read.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Precheck {
-    /// The file's metadata equals the stamp taken before a full read that matched the current
-    /// baseline: the file was not replaced or written since. Skip the read.
-    Unchanged,
-    /// Read the file. If the read finds it current, [`remember`] this stamp (none when unsettled).
-    Read(Option<Stamp>),
-}
-
-/// Compare the file's metadata with the stamp remembered for the current baseline. Explicit
-/// `file.refresh` and `file.status` always read the exact bytes.
-pub fn precheck(ds: &DocState, now: SystemTime) -> Precheck {
-    let (Some(path), Some(baseline)) = (&ds.path, &ds.file_baseline) else {
-        return Precheck::Read(None);
-    };
-    let Ok(stamp) = figcraft_format::file_sync::stamp(std::path::Path::new(path)) else {
-        return Precheck::Read(None);
-    };
-    if ds.external_stamp.as_ref().is_some_and(|(b, s)| b == baseline && *s == stamp) {
-        return Precheck::Unchanged;
-    }
-    Precheck::Read(stamp.settled(now).then_some(stamp))
-}
-
-/// A full read after [`precheck`] found the file equal to the current baseline.
-pub fn remember(ds: &mut DocState, stamp: Stamp) {
-    ds.external_stamp = ds.file_baseline.clone().map(|b| (b, stamp));
-}
 
 pub fn specs() -> Vec<crate::cmd::CommandSpec> {
     vec![spec!(
         "file.refresh",
         "Refresh external file",
-        "{target (from file.status or document.inspect)} → {state: current|refreshed|conflict|deferred|missing|invalid|unreadable|pathChanged|untracked, recovery?, error?, target}. Checks an external native-file update under the writer lock. Only clean, noninteractive main files refresh. Retains a separate complete recovery copy and one undo step, preserves document identity/view, and never rewrites the external file or steals focus.",
+        "{target (from file.status or document.inspect)} → {state: current|refreshed|conflict|deferred|missing|invalid|unreadable|pathChanged|untracked, recovery?, error?, target}. Explicitly loads an external native-file update under the writer lock. Only clean, noninteractive main files refresh. Retains a separate complete recovery copy and one undo step, preserves document identity/view, and never rewrites the external file or steals focus.",
         false,
         refresh
     )]
+}
+
+/// Check before command preprocessing: even a refused refresh must preserve interactive state.
+#[cfg(not(target_arch = "wasm32"))]
+fn ready(s: &Session) -> Result<()> {
+    let refuse = |why: &str| Err(crate::bad("file.refresh", why));
+    let ds = s.ds()?;
+    if ds.interaction.is_some() || ds.text_edit.is_some() || ds.vector_edit.is_some() || ds.preview.is_some() || ds.text_preview.is_some() {
+        return refuse("the document is being edited or previewed; no replacement is allowed");
+    }
+    if ds.branch_of.is_some() || s.docs.iter().any(|d| d.branch_of.as_ref().is_some_and(|(uid, _)| *uid == ds.uid)) {
+        return refuse("close branch tabs before replacing the main file");
+    }
+    if s.live_of(ds.uid).doc_uid.is_some() {
+        return refuse("leave live collaboration before replacing the file");
+    }
+    Ok(())
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -89,7 +74,7 @@ pub fn refresh(s: &mut Session, p: &Value) -> Result<Value> {
     if ds.is_dirty() {
         return Ok(reply("conflict", Some("external file changed while local edits are unsaved; both versions are retained".into())));
     }
-    if let Err(e) = crate::file_adoption::ready(s) {
+    if let Err(e) = ready(s) {
         return Ok(reply("deferred", Some(e.to_string())));
     }
     let mut next = ds.clone();

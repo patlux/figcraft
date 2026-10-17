@@ -637,9 +637,6 @@ pub struct FigApp {
     pending_dialog: Option<PendingDialog>,
     /// The latest UI context schedules the first poll and wakes the app when a dialog completes.
     ui_context: Option<egui::Context>,
-    /// Shared across panes: external-file polling also runs while every viewport is hidden.
-    next_external_poll: Option<std::time::Instant>,
-    external_poll_cursor: usize,
 }
 
 /// What to do with the result of a command run in the background.
@@ -669,8 +666,6 @@ impl FigApp {
             waiting: Vec::new(),
             pending_dialog: None,
             ui_context: None,
-            next_external_poll: None,
-            external_poll_cursor: 0,
         }
     }
 
@@ -1153,75 +1148,6 @@ impl FigApp {
             || self.pending_dialog.is_some()
             || ctx.egui_wants_keyboard_input()
             || ctx.input(|i| i.pointer.any_down())
-    }
-
-    /// Inspect one tracked document per second without a frame or focus change.
-    /// A full check reads exact bytes, not only mtime/length. After a full read matched the
-    /// baseline, later polls only compare file metadata until it changes. A changed or conflicting
-    /// file is read again on each turn: large files can then block this synchronous check.
-    pub fn external_file_tick(&mut self, ctx: &egui::Context) {
-        if cfg!(target_arch = "wasm32") {
-            return;
-        }
-        // egui's UI clock does not advance in run_logic while windows are hidden.
-        let now = std::time::Instant::now();
-        if let Some(next) = self.next_external_poll.filter(|next| *next > now) {
-            ctx.request_repaint_after(next.saturating_duration_since(now));
-            return;
-        }
-        self.next_external_poll = now.checked_add(std::time::Duration::from_secs(1));
-        ctx.request_repaint_after(std::time::Duration::from_secs(1));
-        if self.session.docs.is_empty() {
-            return;
-        }
-        let index = self.external_poll_cursor % self.session.docs.len();
-        self.external_poll_cursor = self.external_poll_cursor.wrapping_add(1);
-        let Some(ds) = self.session.docs.get(index) else {
-            return;
-        };
-        if ds.path.is_none() || ds.file_baseline.is_none() || ds.branch_of.is_some() {
-            return;
-        }
-        // Taken before the full read, so a write during the read changes it again.
-        let stamp = match figcraft_engine::file_refresh::precheck(ds, std::time::SystemTime::now()) {
-            figcraft_engine::file_refresh::Precheck::Unchanged => return,
-            figcraft_engine::file_refresh::Precheck::Read(stamp) => stamp,
-        };
-        // Never refresh while UI fields/raw input, a modal dialog or a drag may commit later.
-        let blocked = self.file_replacement_blocked(ctx);
-        let previous = ds.external_file_state.as_ref().and_then(|s| s["state"].as_str()).map(str::to_owned);
-        let target = figcraft_engine::target::of(Some(ds));
-        let old_active = self.session.active;
-        self.session.active = index;
-        let result = if blocked {
-            figcraft_engine::file_state::status(&self.session).map(|mut s| {
-                if s["state"] == "changed" {
-                    s["state"] = json!("deferred");
-                    s["error"] = json!("UI editing is active; external refresh waits");
-                }
-                s
-            })
-        } else {
-            self.session.execute("file.refresh", &json!({"target": target}))
-        };
-        self.session.active = old_active;
-        let result = result.unwrap_or_else(|e| json!({"state": "unreadable", "error": e.to_string()}));
-        let state = result["state"].as_str().unwrap_or("unreadable");
-        if !matches!(state, "current" | "untracked") && previous.as_deref() != Some(state) {
-            let detail = result["error"].as_str().unwrap_or("external file refreshed; prior state retained in recovery");
-            self.toast(detail.to_string());
-        }
-        if let Some(ds) = self.session.docs.get_mut(index) {
-            ds.external_file_state = Some(result.clone());
-            if let Some(stamp) = stamp.filter(|_| state == "current") {
-                figcraft_engine::file_refresh::remember(ds, stamp);
-            }
-        }
-        if state == "refreshed"
-            && let Some(ds) = self.session.docs.get(index)
-        {
-            ctx.request_repaint_of(windows::viewport(self.windows.of(ds.uid)));
-        }
     }
 
     /// Every [`AUTOSAVE_SECS`], each open document with unsaved changes since its last version

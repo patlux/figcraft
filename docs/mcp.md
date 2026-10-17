@@ -35,14 +35,9 @@ Use `savedAndCurrent: true` as point-in-time evidence after a save.
 Design hashes include images but exclude the current page, thumbnail and history.
 A history-only edit keeps `savedAndCurrent` false until a successful save.
 The tool does not refresh, merge or overwrite anything.
-`adopt_file` imports a separate native candidate into the same clean open document and saves it through protected writes.
-Pass `target` with revision, `candidate`, `candidateSha256`, `diskSha256` and a unique `operation` ID.
-It retains history and a separate recovery copy. It refuses local changes, interaction and ambiguous targets.
-After a lost reply, use `file_operation_status` instead of replaying the adoption.
-`resultPresent` is an observation of the retained receipt and current disk agreement, not an exactly-once guarantee.
-`refresh_file {target}` checks for a changed external native file and refreshes only a clean, noninteractive document.
-The desktop also polls hidden tabs automatically. Conflicts preserve both sides.
-`inspect_document.externalFile` exposes the last polling result. Use `file_status` for a fresh disk observation.
+`refresh_file {target}` loads a changed external native file into the same clean, noninteractive document.
+The app does not watch or poll files: call it after an external write. Conflicts preserve both sides.
+A save over an external change is refused. Use `file_status` for a fresh disk observation.
 See [file synchronization](file-synchronization.md) for preconditions, target checks and writer-lock limits.
 
 ### Fonts

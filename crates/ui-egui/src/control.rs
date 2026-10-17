@@ -265,18 +265,15 @@ pub fn handle(app: &mut FigApp, ctx: &Context, method: &str, p: &Value) -> Resul
         "engine.execute" => {
             let cmd = p.get("command").and_then(Value::as_str).ok_or("`command` required")?;
             let params = p.get("params").cloned().unwrap_or(json!({}));
-            if matches!(cmd, "file.adopt" | "file.refresh") {
+            if cmd == "file.refresh" {
                 validate_target(app, &params)?;
                 if app.file_replacement_blocked(ctx) {
                     return Err("UI editing is active; file replacement waits until fields, input and dialogs are idle".into());
                 }
             }
             let r = app.session.execute(cmd, &params).map_err(|e| e.to_string()).map(|mut result| {
-                if matches!(cmd, "file.status" | "file.adopt" | "file.refresh") && result.get("target").is_some() {
+                if matches!(cmd, "file.status" | "file.refresh") && result.get("target").is_some() {
                     result["target"]["window"] = json!(app.windows.current);
-                }
-                if cmd == "file.operationStatus" && result.get("fileStatus").is_some() {
-                    result["fileStatus"]["target"]["window"] = json!(app.windows.current);
                 }
                 result
             });

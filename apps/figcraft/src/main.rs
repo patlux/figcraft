@@ -64,7 +64,6 @@ impl eframe::App for App {
             }
         }
         let title = with_app(|fig| {
-            fig.external_file_tick(ctx);
             control_server::drain_queue(&self.queue, &mut fig.control_queue);
             figcraft_ui_egui::control::drain_hidden(fig, ctx);
             #[cfg(target_os = "macos")]

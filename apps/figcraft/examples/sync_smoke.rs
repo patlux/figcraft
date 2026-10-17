@@ -38,7 +38,6 @@ impl Smoke {
     fn new(dir: PathBuf) -> Result<Self, String> {
         std::fs::create_dir(&dir).map_err(|e| e.to_string())?;
         let session = create("SYNTHETIC — original", "#375AD9", &dir.join("original.figcraft"))?;
-        create("SYNTHETIC — adopted candidate", "#147C57", &dir.join("candidate.figcraft"))?;
         let mut app = FigApp::new(session, Box::new(NoServices));
         app.ui.home = false;
         Ok(Self {
@@ -55,7 +54,7 @@ impl Smoke {
             verified_screenshots: 0,
         })
     }
-    fn change_external(&self, name: &str) -> Result<(), String> {
+    fn change_external(&self, name: &str, color: &str) -> Result<(), String> {
         let mut other = Session::empty();
         execute(&mut other, "file.open", json!({"path": self.dir.join("original.figcraft")}))?;
         execute(&mut other, "file.rename", json!({"name": name}))?;
@@ -68,12 +67,16 @@ impl Smoke {
             .find(|n| n.name == "Smoke rectangle")
             .map(|n| n.id)
             .ok_or("synthetic rectangle absent")?;
-        execute(&mut other, "node.set", json!({"ids": [rect], "props": {"fill": "#7F46B8"}}))?;
+        execute(&mut other, "node.set", json!({"ids": [rect], "props": {"fill": color}}))?;
         execute(&mut other, "file.save", json!({}))?;
         Ok(())
     }
+    /// The explicit refresh an agent calls after an external write; the app does not poll.
+    fn refresh(&mut self) -> Result<serde_json::Value, String> {
+        let target = figcraft_engine::target::of(self.app.session.ds().ok());
+        execute(&mut self.app.session, "file.refresh", json!({"target": target}))
+    }
     fn tick(&mut self, ctx: &egui::Context) -> Result<(), String> {
-        self.app.external_file_tick(ctx);
         let elapsed = self.started.elapsed();
         if elapsed > Duration::from_secs(30) {
             return Err(format!(
@@ -91,11 +94,13 @@ impl Smoke {
                 self.stage = 1;
             }
             1 if elapsed > Duration::from_secs(2) && ctx.input(|i| i.viewport().minimized == Some(true)) => {
-                self.change_external("SYNTHETIC — external refreshed")?;
+                self.change_external("SYNTHETIC — external refreshed", "#7F46B8")?;
                 self.hidden_write_frame = Some(self.frame);
-                self.stage = 2;
-            }
-            2 if self.app.session.doc().map_err(|e| e.to_string())?.name == "SYNTHETIC — external refreshed" => {
+                let refreshed = self.refresh()?;
+                if refreshed["state"] != "refreshed" || self.app.session.doc().map_err(|e| e.to_string())?.name != "SYNTHETIC — external refreshed"
+                {
+                    return Err(format!("explicit refresh while minimized failed: {refreshed}"));
+                }
                 self.hidden_verified = ctx.input(|i| i.viewport().minimized == Some(true)) && self.hidden_write_frame == Some(self.frame);
                 if !self.hidden_verified {
                     return Err("refresh did not occur while minimized without UI frames".into());
@@ -110,31 +115,25 @@ impl Smoke {
                 self.capture_after = Instant::now() + Duration::from_secs(2);
             }
             4 => {
-                let target = figcraft_engine::target::of(self.app.session.ds().ok());
-                let disk = self.app.session.ds().map_err(|e| e.to_string())?.file_baseline.as_ref().ok_or("no baseline")?.sha256.clone();
-                let candidate = self.dir.join("candidate.figcraft");
-                let (_, baseline) = figcraft_format::file_sync::read(&candidate).map_err(|e| e.to_string())?;
-                let result = execute(
-                    &mut self.app.session,
-                    "file.adopt",
-                    json!({"target": target, "candidate": candidate,
-                    "candidateSha256": baseline.sha256, "diskSha256": disk, "operation": "native-smoke-adopt"}),
-                )?;
-                let status = execute(&mut self.app.session, "file.operationStatus", json!({"operation": "native-smoke-adopt"}))?;
-                if status["outcome"] != "resultPresent" {
-                    return Err("adoption receipt not verified".into());
+                self.change_external("SYNTHETIC — visible refresh", "#147C57")?;
+                let refreshed = self.refresh()?;
+                if refreshed["state"] != "refreshed" {
+                    return Err(format!("explicit refresh while visible failed: {refreshed}"));
                 }
-                std::fs::write(self.dir.join("adoption-status.json"), json!({"result": result, "status": status}).to_string())
-                    .map_err(|e| e.to_string())?;
+                std::fs::write(self.dir.join("visible-refresh.json"), refreshed.to_string()).map_err(|e| e.to_string())?;
                 self.stage = 5;
                 self.capture_after = Instant::now() + Duration::from_secs(2);
             }
             6 => {
                 execute(&mut self.app.session, "file.rename", json!({"name": "SYNTHETIC — LOCAL UNSAVED"}))?;
-                self.change_external("SYNTHETIC — external conflict")?;
+                self.change_external("SYNTHETIC — external conflict", "#7F46B8")?;
+                let refreshed = self.refresh()?;
+                if refreshed["state"] != "conflict" {
+                    return Err(format!("local edits did not produce a conflict: {refreshed}"));
+                }
                 self.stage = 7;
             }
-            7 if self.app.session.ds().map_err(|e| e.to_string())?.external_file_state.as_ref().is_some_and(|v| v["state"] == "conflict") => {
+            7 => {
                 if self.app.session.doc().map_err(|e| e.to_string())?.name != "SYNTHETIC — LOCAL UNSAVED" {
                     return Err("local work lost".into());
                 }
@@ -154,7 +153,7 @@ impl Smoke {
             9 => {
                 std::fs::write(
                     self.dir.join("result.json"),
-                    json!({"ok": true, "hiddenRefresh": self.hidden_verified, "noFramesDuringHiddenRefresh": self.hidden_verified, "adoption": true, "conflictPreserved": true, "verifiedScreenshots": self.verified_screenshots, "frames": self.frame}).to_string(),
+                    json!({"ok": true, "hiddenRefresh": self.hidden_verified, "noFramesDuringHiddenRefresh": self.hidden_verified, "visibleRefresh": true, "conflictPreserved": true, "verifiedScreenshots": self.verified_screenshots, "frames": self.frame}).to_string(),
                 )
                 .map_err(|e| e.to_string())?;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -199,7 +198,7 @@ impl eframe::App for Smoke {
         for image in shots {
             let name = match self.stage {
                 3 => "01-refreshed.png",
-                5 => "02-adopted.png",
+                5 => "02-visible-refresh.png",
                 8 => "03-conflict.png",
                 _ => continue,
             };

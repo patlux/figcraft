@@ -10,21 +10,20 @@ This audit does not claim installed synchronization or Figma parity.
 | Requirement | Implementation and evidence | Boundary |
 |---|---|---|
 | Recover after EOF without duplicate writes | Bridge discards dead connections and reconnects on the next explicit request. EOF, timeout and disconnect regressions pass. | An uncertain mutation is never replayed automatically. |
-| Target the intended open document | Bridge checks app/window/document/path and reservation on every request. App checks identity at dispatch. Revision checks protect adoption. | Old unguarded clients remain compatible. Identity guards are not authentication. |
+| Target the intended open document | Bridge checks app/window/document/path and reservation on every request. App checks identity at dispatch. Revision checks protect refresh. | Old unguarded clients remain compatible. Identity guards are not authentication. |
 | Reject stale pins | Restart, tab change, path change, closed window and explicit-window bypass tests pass. Changed pins need explicit reselection. | New bridge refuses mutations on older apps without target guards. |
 | Protect manual and background saves | Exact loaded-byte baseline, cooperating-writer lock and atomic replacement. Engine, CLI and cross-process format regressions pass. | Arbitrary or older writers can ignore advisory locks. No power-loss durability guarantee. |
 | Report live/disk agreement truthfully | `file.status` compares exact baseline/disk bytes and design fingerprints. History-only dirtiness keeps `savedAndCurrent` false. | Point-in-time observation, not a reservation. |
-| Adopt a separate generator result | `file.adopt` validates target revision and both hashes under writer locks. It keeps recovery/history and installs the same UID. | Clean native main file only. No collaboration, open branch tabs or active editing. |
-| Observe an adoption after a lost reply | Retained version receipt plus current disk/live agreement. Tests discard the result, inspect, reject replay and reopen. | No durable exactly-once protocol. Receipt removal or a crash can require manual recovery. |
-| Refresh external updates in hidden documents | Monotonic round-robin desktop poller. Hidden-window tests and native minimized smoke pass. Queued imports in any pane defer replacement. Unchanged metadata skips repeated full reads. | Native files only. One tab per second. The first read after open, save or refresh, and reads of changed files, can stall the UI. |
+| Load an external update into an open document | Explicit `file.refresh` with a fresh target. Hidden-window tests and the native minimized smoke pass. Queued imports in any window refuse replacement. | Native files only. The app does not poll: the agent must call it after a write. Large files can stall the UI during the call. |
 | Keep conflicting work | Dirty, missing, invalid and preview cases preserve live/disk state. Conflicting saves fail. Native smoke checks unchanged external bytes. | No automatic merge. User must resolve genuine competing edits. |
-| Keep recoverable history | Adoption keeps both histories and a complete prior archive. Refresh keeps prior history in recovery and loads incoming history. Undo remains available. | Recovery files are not pruned. Undo changes live state, not disk, until a later save. |
-| Verify what the window displays | Native smoke captures and checks three windows. Reviewed images show refresh, adoption and preserved conflict. | Async canvas can display an old texture briefly after the title changes. Status is not a pixel-ready signal. |
+| Keep recoverable history | Refresh keeps prior history in a recovery file and loads incoming history. Undo remains available. | Recovery files are not pruned. Undo changes live state, not disk, until a later save. |
+| Verify what the window displays | Native smoke captures and checks three windows. Reviewed images show a hidden refresh, a visible refresh and a preserved conflict. | Async canvas can display an old texture briefly after the title changes. Status is not a pixel-ready signal. |
 | Give agents correct operating instructions | Central routing, dedicated skill, MCP schemas and infrastructure operating docs distinguish source, package, installation and processes. | Paired activation and installed integration remain separate work. |
 | Avoid silent invalid targets | Selected upstream #675/#608 changes reject malformed parent/layer IDs and invalid document indices. Seven regressions failed before the fix. | This does not make every legacy parameter parser strict. |
 
 ## Verification summary
 
+- 2026-10-17: automatic polling and generator adoption were removed. The remaining contract is described in `/Users/patwoz/dev/Personal/thirdparty/figcraft/docs/file-synchronization.md`. Earlier evidence below includes the removed features.
 - Full workspace after the polling and new-window fixes: **2,431 passed, zero failed, eight ignored** (2,428 after the upstream merge).
 - The installed-chain check on 2026-10-17 found two defects. Both regressions failed before their fixes:
   - Each poll turn read and hashed every open file. A 211 MB document kept the main thread about 56% busy.

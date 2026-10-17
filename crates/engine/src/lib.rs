@@ -25,7 +25,6 @@ pub mod devcompare;
 pub mod devinspect;
 pub mod distance;
 pub mod drop;
-pub mod file_adoption;
 pub mod file_refresh;
 pub mod file_state;
 pub mod guard;
@@ -345,11 +344,6 @@ pub struct DocState {
     pub file_baseline: Option<figcraft_format::file_sync::Baseline>,
     /// Complete previous file state retained before the last automatic external refresh.
     pub external_recovery: Option<String>,
-    /// Last desktop polling observation; explicit file.status performs a fresh read.
-    pub external_file_state: Option<serde_json::Value>,
-    /// Metadata taken before the last full poll read that matched this baseline (see
-    /// [`file_refresh::precheck`]). Valid only while the baseline is unchanged.
-    pub external_stamp: Option<(figcraft_format::file_sync::Baseline, figcraft_format::file_sync::Stamp)>,
     pub revision: u64,
     pub view: ViewState,
     pub interaction: Option<Interaction>,
@@ -426,8 +420,6 @@ impl DocState {
             path,
             file_baseline: None,
             external_recovery: None,
-            external_file_state: None,
-            external_stamp: None,
             revision: 1,
             view: ViewState::default(),
             interaction: None,
@@ -740,7 +732,7 @@ pub struct Session {
     pub ui_dark: Option<bool>,
     /// Command log (id + params) for actions/automation.
     pub journal: Vec<(String, Value)>,
-    /// Irreversible file adoption is forbidden inside rollback-capable command groups.
+    /// An external-file refresh is forbidden inside rollback-capable command groups.
     pub(crate) group_depth: usize,
     /// Recently used colours.
     pub recent_colors: Vec<figcraft_color::Color>,
@@ -875,9 +867,9 @@ impl Session {
     pub fn execute(&mut self, id: &str, params: &Value) -> Result<Value> {
         let spec = find_command(id).ok_or_else(|| EngineError::UnknownCommand(id.to_string()))?;
         // An observation must not end previews, sync branches, or invalidate the target it returns.
-        // Adoption validates and prepares a whole replacement before disk commit. It owns its undo,
-        // saved baseline and revision; generic post-normalization would diverge from committed bytes.
-        if matches!(id, "file.status" | "file.operationStatus" | "file.adopt" | "file.refresh") {
+        // Refresh validates and prepares a whole replacement before installing it. It owns its undo,
+        // saved baseline and revision; generic post-normalization would diverge from the disk bytes.
+        if matches!(id, "file.status" | "file.refresh") {
             return guard::run(id, || (spec.run)(self, params));
         }
         // Revert replaces the document's uid: refuse before ending previews or syncing branches.
@@ -1555,8 +1547,6 @@ mod fig_export_assets_tests;
 mod fig_export_tests;
 #[cfg(test)]
 mod fig_import_tests;
-#[cfg(test)]
-mod file_adoption_tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod file_conflict_tests;
 #[cfg(test)]
