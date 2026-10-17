@@ -1,6 +1,6 @@
 # Local file synchronization
 
-Status: slim local fork (2026-10-17). It keeps protected saves, guarded control targets, `file.status` and an explicit `file.refresh`.
+Status: slim local fork on upstream `0a01188` (2026-10-17). It keeps protected saves, guarded control targets, `file.status` and an explicit `file.refresh`.
 The app does not watch or poll files. An agent calls `file.refresh` after an external write.
 Generator adoption (`file.adopt`, `file.operationStatus`) and automatic polling are removed. See [Removed features](#removed-features).
 
@@ -89,6 +89,8 @@ Tracked paths reject final symlinks and multiply-linked files on Unix.
 Parent symlinks resolve to a canonical directory, and path changes invalidate the baseline.
 Disk reads and generated native outputs have a 512 MiB limit.
 The archive loader retains its existing decompression and member limits.
+Tracked reads, writes and locks go through the engine's automation roots (#715), like every other engine file access.
+A path outside the roots is refused before any lock file or recovery copy is created.
 The generic low-level `write_file_atomic` API remains unguarded for callers without a document baseline.
 Exports and recovery copies are not a substitute for a tracked document save.
 

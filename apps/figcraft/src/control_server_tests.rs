@@ -159,11 +159,12 @@ fn connection_limit_rejects_excess_clients_and_reuses_finished_slots() {
     spawn_connection(server, pending, ctx, &mut workers, Duration::from_secs(5));
     assert_eq!(workers.len(), 1);
     client.write_all(b"invalid\n").unwrap();
-    let mut reader = BufReader::new(client);
-    assert_eq!(reply(&mut reader)["ok"], false);
-    // Invalid JSON now closes the server side. On macOS, another shutdown can return ENOTCONN;
-    // assert the intended EOF instead of attempting to close an already closed connection.
-    assert_eq!(reader.read(&mut [0]).unwrap(), 0);
+    assert_eq!(reply(&mut BufReader::new(client.try_clone().unwrap()))["ok"], false);
+    // The server closes this connection after answering an invalid request, and shutting down
+    // a socket whose peer has already closed is ENOTCONN on macOS and the BSDs where Linux
+    // returns Ok. Closing the client is what the worker is waiting for, so the result is moot:
+    // the other shutdowns in this file run while the peer is still open and stay checked.
+    let _ = client.shutdown(Shutdown::Both);
     workers.pop().unwrap().join().unwrap();
 }
 

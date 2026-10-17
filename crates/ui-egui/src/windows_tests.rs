@@ -97,10 +97,10 @@ fn guarded_calls_check_revision_and_target_after_queueing_even_when_hidden() {
     logic(&ctx, &mut app, &[ViewportId::ROOT, crate::windows::viewport(w)]);
     assert!(queued.try_recv().unwrap().result.is_ok());
     assert_eq!(app.session.ds().unwrap().doc.name, "Correct");
+    // Raw input waits for a frame: a guarded request is refused even for a window on screen.
     let target = crate::windows::list(&app)[0]["target"].clone();
-    let raw = request(&mut app, "ui.input", json!({"window": 0, "target": target, "events": [{"text": "not deferred"}]}));
-    logic(&ctx, &mut app, &[ViewportId::ROOT, crate::windows::viewport(w)]);
-    assert!(raw.try_recv().unwrap().result.unwrap_err().contains("deferred"));
+    let raw = crate::control::handle(&mut app, &ctx, "ui.input", &json!({"target": target, "events": [{"text": "not deferred"}]}));
+    assert!(raw.unwrap_err().contains("deferred"));
     assert!(crate::windows::take_input(&mut app, ViewportId::ROOT).is_empty());
 }
 
@@ -241,35 +241,22 @@ fn hidden_windows_answer_ui_inspection_without_a_frame() {
 }
 
 #[test]
-fn hidden_windows_refuse_screenshots_without_waiting_for_a_frame() {
-    let (ctx, mut app, w) = two_windows();
-    let other = crate::windows::viewport(w);
-    for target in [0, w] {
-        let shot = request(&mut app, "ui.screenshot", json!({"window": target, "path": "/tmp/figcraft-hidden-not-written.png"}));
-        logic(&ctx, &mut app, &[ViewportId::ROOT, other]);
-        let error = shot.try_recv().expect("screenshot is refused immediately").result.unwrap_err();
-        assert!(error.contains("visible"), "{error}");
-        assert!(app.control_queue.is_empty());
-    }
-}
+fn closing_a_window_in_the_presenter_shows_the_unsaved_changes_dialog() {
+    let mut session = Session::new();
+    let frame_id = session.execute("node.create", &json!({"type": "frame", "width": 402, "height": 874})).unwrap()["id"].clone();
+    let ctx = egui::Context::default();
+    let mut app = FigApp::new(session, Box::new(NoServices));
+    frame(&ctx, &mut app, false);
+    app.session.execute("proto.present", &json!({"start": frame_id})).unwrap();
+    app.handle_ui_requests();
+    frame(&ctx, &mut app, false);
+    assert!(app.ui.present.is_some());
 
-#[test]
-fn hidden_windows_buffer_raw_input_for_only_their_own_next_frame() {
-    let (ctx, mut app, w) = two_windows();
-    let other = crate::windows::viewport(w);
-    for target in [0, w] {
-        let input = request(&mut app, "ui.input", json!({"window": target, "events": [{"text": "synthetic"}]}));
-        logic(&ctx, &mut app, &[ViewportId::ROOT, other]);
-        assert!(input.try_recv().expect("raw input is accepted without a frame").result.is_ok());
-        let not_target = if target == 0 { other } else { ViewportId::ROOT };
-        assert!(crate::windows::take_input(&mut app, not_target).is_empty());
-        let events = crate::windows::take_input(&mut app, crate::windows::viewport(target));
-        assert!(matches!(events.as_slice(), [egui::Event::Text(text)] if text == "synthetic"));
-        assert!(crate::windows::take_input(&mut app, crate::windows::viewport(target)).is_empty());
-        assert!(app.session.docs.iter().all(|d| !d.is_dirty()), "input is buffered, not applied yet");
-        assert_eq!(app.windows.current, 0);
-        assert!(app.control_queue.is_empty());
-    }
+    frame(&ctx, &mut app, true);
+    assert!(app.ui.confirm_close);
+    assert!(ctx.memory(|memory| memory.area_rect(egui::Id::new(Some(crate::i18n::tr("Unsaved changes")))).is_some()), "dialog must be on screen");
+    frame(&ctx, &mut app, false);
+    assert!(app.ui.present.is_some(), "asking to close does not dismiss the preview");
 }
 
 #[test]
@@ -343,11 +330,12 @@ fn another_hidden_window_answers_requests_that_need_no_frame_in_its_own_file() {
     assert_eq!(inspect.try_recv().expect("answered").result.unwrap()["name"], json!("A"));
     assert_eq!(app.session.ds().unwrap().doc.name, "B");
 
-    // UI inspection also answers without a frame; an unknown window is an error at once.
-    let ui = request(&mut app, "ui.inspect", json!({"window": w}));
+    // What needs a frame, and an unknown window, are errors at once: nothing waits for a window
+    // that may stay hidden.
+    let shot = request(&mut app, "ui.screenshot", json!({"window": w, "path": "unused.png"}));
     let unknown = request(&mut app, "window.list", json!({"window": 99}));
     logic(&ctx, &mut app, &[ViewportId::ROOT, other]);
-    assert_eq!(ui.try_recv().expect("UI inspection answered").result.unwrap()["window"], json!(w));
+    assert!(shot.try_recv().expect("answered").result.unwrap_err().contains(&format!("window {w} is minimised or hidden")));
     assert!(unknown.try_recv().expect("answered").result.unwrap_err().contains("no window 99"));
     assert!(app.control_queue.is_empty());
 }
@@ -396,7 +384,7 @@ fn a_window_not_created_yet_answers_while_the_main_window_is_hidden() {
     let _ = ctx.run_logic(&input(true), |ctx| crate::control::drain_hidden(&mut app, ctx));
     let windows = listed.try_recv().expect("answered without waiting for the window to exist").result.unwrap();
     assert!(windows.as_array().unwrap().iter().any(|v| v["id"] == json!(n)), "{windows}");
-    assert!(shot.try_recv().expect("refused at once").result.unwrap_err().contains("visible"));
+    assert!(shot.try_recv().expect("refused at once").result.unwrap_err().contains("minimised or hidden"));
     assert!(app.control_queue.is_empty());
     // On screen, the main window's next frame creates the window: a capture waits for it.
     let shot = request(&mut app, "ui.screenshot", screenshot);

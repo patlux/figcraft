@@ -54,6 +54,32 @@ fn refresh_updates_clean_document_without_reopen_and_preserves_previous_history(
 }
 
 #[test]
+fn status_refresh_and_save_stay_inside_automation_roots() {
+    use crate::file_access::{Roots, confined};
+    let f = Fixture::new("roots");
+    let mut s = f.setup();
+    let inside = f.dir.join("inside");
+    std::fs::create_dir_all(&inside).unwrap();
+    let roots = std::sync::Arc::new(Roots::new(&[], &[inside.to_string_lossy().into_owned()]).unwrap());
+    let lock = PathBuf::from(format!("{}.figcraft-lock", f.path));
+    std::fs::remove_file(&lock).unwrap();
+    let disk = std::fs::read(&f.path).unwrap();
+    confined(Some(&roots), || {
+        let status = s.execute("file.status", &json!({})).unwrap();
+        assert_eq!(status["state"], "unreadable", "{status}");
+        assert!(status["error"].as_str().unwrap().contains("automation path rejected"), "{status}");
+        let refreshed = s.execute("file.refresh", &json!({"target": crate::target::of(s.ds().ok())})).unwrap();
+        assert_eq!(refreshed["state"], "unreadable", "{refreshed}");
+        assert!(s.execute("file.save", &json!({})).unwrap_err().to_string().contains("automation path rejected"));
+    });
+    assert_eq!(s.ds().unwrap().doc.name, "Before external update");
+    assert_eq!(std::fs::read(&f.path).unwrap(), disk);
+    assert!(!lock.exists(), "no writer lock outside the roots");
+    let recoveries = std::fs::read_dir(&f.dir).unwrap().filter(|e| e.as_ref().unwrap().file_name().to_string_lossy().contains("recovery")).count();
+    assert_eq!(recoveries, 0, "no recovery copy outside the roots");
+}
+
+#[test]
 fn refresh_reports_local_corrupt_missing_and_interactive_conflicts() {
     for case in ["dirty", "corrupt", "missing", "preview"] {
         let f = Fixture::new(case);

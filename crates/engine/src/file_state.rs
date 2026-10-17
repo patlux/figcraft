@@ -3,7 +3,6 @@
 use crate::{DocState, EngineError, Result, Session, spec};
 use figcraft_format::file_sync::Baseline;
 use serde_json::{Value, json};
-use std::path::Path;
 
 pub fn specs() -> Vec<crate::cmd::CommandSpec> {
     vec![spec!(
@@ -63,7 +62,7 @@ pub fn status(s: &Session) -> Result<Value> {
         out["state"] = json!("unsaved");
         return Ok(out);
     };
-    let (bytes, disk) = match figcraft_format::file_sync::read(Path::new(path)) {
+    let (bytes, disk) = match crate::file_access::read_tracked(path) {
         Ok(r) => r,
         Err(e) => {
             out["state"] = json!(if e.kind() == std::io::ErrorKind::NotFound { "missing" } else { "unreadable" });

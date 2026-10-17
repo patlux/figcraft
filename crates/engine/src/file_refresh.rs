@@ -37,7 +37,7 @@ pub fn refresh(_s: &mut Session, _p: &Value) -> Result<Value> {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn refresh(s: &mut Session, p: &Value) -> Result<Value> {
-    use figcraft_format::file_sync::{Guard, read, write_checked};
+    use crate::file_access::{lock_tracked, read_tracked, write_tracked};
     use std::{path::Path, sync::Arc};
     let target = p.get("target").ok_or_else(|| crate::bad("file.refresh", "target is required"))?;
     crate::target::validate(s, target)?;
@@ -53,11 +53,11 @@ pub fn refresh(s: &mut Session, p: &Value) -> Result<Value> {
         return Ok(reply("untracked", None));
     }
     let error_state = |e: &std::io::Error| if e.kind() == std::io::ErrorKind::NotFound { "missing" } else { "unreadable" };
-    let guard = match Guard::acquire(Path::new(path)) {
+    let guard = match lock_tracked(path) {
         Ok(guard) => guard,
         Err(e) => return Ok(reply(error_state(&e), Some(e.to_string()))),
     };
-    let (bytes, observed) = match read(Path::new(path)) {
+    let (bytes, observed) = match read_tracked(path) {
         Ok(read) => read,
         Err(e) => return Ok(reply(error_state(&e), Some(e.to_string()))),
     };
@@ -104,7 +104,7 @@ pub fn refresh(s: &mut Session, p: &Value) -> Result<Value> {
         crate::cmd::file::unique_id(|_| false)
     );
     let recovery_bytes = crate::cmd::file::file_bytes(ds)?;
-    if let Err(e) = write_checked(Path::new(&recovery), None, &recovery_bytes) {
+    if let Err(e) = write_tracked(&recovery, None, &recovery_bytes) {
         return Ok(reply("unreadable", Some(format!("recovery could not be saved: {e}"))));
     }
     if let Err(e) = guard.verify(Some(&observed)) {
