@@ -160,17 +160,25 @@ pub fn drain(app: &mut FigApp, ctx: &Context) {
 }
 
 /// Whether window `id` draws no frames now: minimised, or covered by other windows (on macOS also
-/// on another Space).
+/// on another Space), or not created yet while the main window, whose frame creates it, draws
+/// nothing either.
 fn hidden(ctx: &Context, id: u64) -> bool {
-    ctx.input(|i| i.raw.viewports.get(&crate::windows::viewport(id)).and_then(egui::ViewportInfo::visible)) == Some(false)
+    ctx.input(|i| {
+        let visible = |v: egui::ViewportId| i.raw.viewports.get(&v).map(egui::ViewportInfo::visible);
+        match visible(crate::windows::viewport(id)) {
+            Some(visible) => visible == Some(false),
+            None => visible(egui::ViewportId::ROOT).flatten() == Some(false),
+        }
+    })
 }
 
 /// A hidden window (minimised, or covered by other windows) draws no frames, but the desktop app's
 /// `logic` still runs, for the main window even while every window is hidden: it answers the
-/// requests for any hidden window in that window's state, including `ui.inspect`. Only window
-/// screenshots need a frame and are refused at once; raw `ui.input` events wait in that window's
-/// input buffer until its next frame. Another window on screen is asked to draw, which the main
-/// window's frame would do but doesn't while it is hidden. An unknown window is an error at once.
+/// requests for any hidden window in that window's state, including `ui.inspect`. A window that
+/// the hidden main window has not created yet counts as hidden. Only window screenshots need a
+/// frame and are refused at once; raw `ui.input` events wait in that window's input buffer until
+/// its next frame. Another window on screen is asked to draw, which the main window's frame would
+/// do but doesn't while it is hidden. An unknown window is an error at once.
 pub fn drain_hidden(app: &mut FigApp, ctx: &Context) {
     for r in std::mem::take(&mut app.control_queue) {
         if r.is_cancelled() {
@@ -192,7 +200,7 @@ pub fn drain_hidden(app: &mut FigApp, ctx: &Context) {
         }
         if r.method == "ui.screenshot" {
             let error = format!(
-                "window {target} draws nothing now (minimized, behind other windows or on another Space): a window screenshot needs it visible"
+                "window {target} draws nothing now (minimized, behind other windows, on another Space or not created yet): a window screenshot needs it visible"
             );
             let _ = r.reply.send(ControlReply { id: r.id, result: Err(error) });
             continue;

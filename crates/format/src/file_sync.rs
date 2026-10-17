@@ -10,10 +10,39 @@
 //! a durability guarantee across power loss, nor a distributed/network-filesystem lock protocol.
 
 use sha2::{Digest, Sha256};
-use std::{io, path::PathBuf};
+use std::{
+    io,
+    path::PathBuf,
+    time::{Duration, SystemTime},
+};
 
 /// Bound disk reads, including files that grow after their metadata was checked.
 pub const MAX_FILE_BYTES: u64 = 512 * 1024 * 1024;
+
+/// Timestamps closer to the observation than this can hide a later same-size write on coarse file
+/// systems (FAT: 2 s, HFS+: 1 s).
+pub const STAMP_SETTLE: Duration = Duration::from_secs(2);
+
+/// Cheap metadata of the file a path names now: device, inode, size, and modification and status
+/// change times. Replacement changes the inode; an in-place write changes the status change time,
+/// which no ordinary program can restore. A stamp never proves that bytes match a baseline. It only
+/// lets a poller skip a full read when the stamp equals one taken before a matching full read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Stamp {
+    device: u64,
+    inode: u64,
+    len: u64,
+    modified: Option<SystemTime>,
+    changed: Option<SystemTime>,
+}
+
+impl Stamp {
+    /// Both times are at least [`STAMP_SETTLE`] older than `now`: a later write cannot reuse them.
+    pub fn settled(&self, now: SystemTime) -> bool {
+        let old = |t: SystemTime| now.duration_since(t).is_ok_and(|age| age >= STAMP_SETTLE);
+        self.modified.is_some_and(old) && self.changed.is_none_or(old)
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Baseline {
@@ -91,6 +120,24 @@ mod native {
         Ok((bytes, baseline))
     }
 
+    /// The final path component is not followed: a new symlink changes the stamp.
+    pub fn stamp(path: &Path) -> io::Result<Stamp> {
+        let meta = std::fs::symlink_metadata(path)?;
+        #[cfg(unix)]
+        let (device, inode, changed) = {
+            use std::os::unix::fs::MetadataExt;
+            let changed = u64::try_from(meta.ctime())
+                .ok()
+                .zip(u64::try_from(meta.ctime_nsec()).ok())
+                .and_then(|(secs, nanos)| Duration::from_secs(secs).checked_add(Duration::from_nanos(nanos)))
+                .and_then(|age| SystemTime::UNIX_EPOCH.checked_add(age));
+            (meta.dev(), meta.ino(), changed)
+        };
+        #[cfg(not(unix))]
+        let (device, inode, changed) = (0, 0, None);
+        Ok(Stamp { device, inode, len: meta.len(), modified: meta.modified().ok(), changed })
+    }
+
     /// A short-lived lock, scoped to one save/adoption. Do not retain it while editing.
     pub struct Guard {
         requested: PathBuf,
@@ -161,10 +208,15 @@ mod native {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use native::{Guard, read, target, write_checked};
+pub use native::{Guard, read, stamp, target, write_checked};
 
 #[cfg(target_arch = "wasm32")]
 pub fn read(_path: &std::path::Path) -> io::Result<(Vec<u8>, Baseline)> {
+    Err(io::Error::other("no file system in the browser"))
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn stamp(_path: &std::path::Path) -> io::Result<Stamp> {
     Err(io::Error::other("no file system in the browser"))
 }
 

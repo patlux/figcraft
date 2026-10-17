@@ -1,7 +1,39 @@
 //! External native-file updates: refresh only clean, noninteractive documents; retain recovery.
 
-use crate::{EngineError, Result, Session, spec};
+use crate::{DocState, EngineError, Result, Session, spec};
+use figcraft_format::file_sync::Stamp;
 use serde_json::{Value, json};
+use std::time::SystemTime;
+
+/// The desktop poller's cheap check before an exact-byte read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Precheck {
+    /// The file's metadata equals the stamp taken before a full read that matched the current
+    /// baseline: the file was not replaced or written since. Skip the read.
+    Unchanged,
+    /// Read the file. If the read finds it current, [`remember`] this stamp (none when unsettled).
+    Read(Option<Stamp>),
+}
+
+/// Compare the file's metadata with the stamp remembered for the current baseline. Explicit
+/// `file.refresh` and `file.status` always read the exact bytes.
+pub fn precheck(ds: &DocState, now: SystemTime) -> Precheck {
+    let (Some(path), Some(baseline)) = (&ds.path, &ds.file_baseline) else {
+        return Precheck::Read(None);
+    };
+    let Ok(stamp) = figcraft_format::file_sync::stamp(std::path::Path::new(path)) else {
+        return Precheck::Read(None);
+    };
+    if ds.external_stamp.as_ref().is_some_and(|(b, s)| b == baseline && *s == stamp) {
+        return Precheck::Unchanged;
+    }
+    Precheck::Read(stamp.settled(now).then_some(stamp))
+}
+
+/// A full read after [`precheck`] found the file equal to the current baseline.
+pub fn remember(ds: &mut DocState, stamp: Stamp) {
+    ds.external_stamp = ds.file_baseline.clone().map(|b| (b, stamp));
+}
 
 pub fn specs() -> Vec<crate::cmd::CommandSpec> {
     vec![spec!(

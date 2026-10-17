@@ -16,7 +16,7 @@ This audit does not claim installed synchronization or Figma parity.
 | Report live/disk agreement truthfully | `file.status` compares exact baseline/disk bytes and design fingerprints. History-only dirtiness keeps `savedAndCurrent` false. | Point-in-time observation, not a reservation. |
 | Adopt a separate generator result | `file.adopt` validates target revision and both hashes under writer locks. It keeps recovery/history and installs the same UID. | Clean native main file only. No collaboration, open branch tabs or active editing. |
 | Observe an adoption after a lost reply | Retained version receipt plus current disk/live agreement. Tests discard the result, inspect, reject replay and reopen. | No durable exactly-once protocol. Receipt removal or a crash can require manual recovery. |
-| Refresh external updates in hidden documents | Monotonic round-robin desktop poller. Hidden-window tests and native minimized smoke pass. Queued imports in any pane defer replacement. | Native files only. One tab per second. Synchronous large-file work can stall the UI. |
+| Refresh external updates in hidden documents | Monotonic round-robin desktop poller. Hidden-window tests and native minimized smoke pass. Queued imports in any pane defer replacement. Unchanged metadata skips repeated full reads. | Native files only. One tab per second. The first read after open, save or refresh, and reads of changed files, can stall the UI. |
 | Keep conflicting work | Dirty, missing, invalid and preview cases preserve live/disk state. Conflicting saves fail. Native smoke checks unchanged external bytes. | No automatic merge. User must resolve genuine competing edits. |
 | Keep recoverable history | Adoption keeps both histories and a complete prior archive. Refresh keeps prior history in recovery and loads incoming history. Undo remains available. | Recovery files are not pruned. Undo changes live state, not disk, until a later save. |
 | Verify what the window displays | Native smoke captures and checks three windows. Reviewed images show refresh, adoption and preserved conflict. | Async canvas can display an old texture briefly after the title changes. Status is not a pixel-ready signal. |
@@ -25,7 +25,11 @@ This audit does not claim installed synchronization or Figma parity.
 
 ## Verification summary
 
-- Full workspace after the upstream merge: **2,428 passed, zero failed, eight ignored**.
+- Full workspace after the polling and new-window fixes: **2,431 passed, zero failed, eight ignored** (2,428 after the upstream merge).
+- The installed-chain check on 2026-10-17 found two defects. Both regressions failed before their fixes:
+  - Each poll turn read and hashed every open file. A 211 MB document kept the main thread about 56% busy.
+  - A window opened while the main window was hidden blocked untargeted requests until the main window drew.
+- The native smoke passes again after both fixes: `/tmp/figcraft-poll-fix-smoke-20261017`, three reviewed 2400×1600 captures.
 - Upstream resolves the previous `credits::ui_tests::every_column_fits_the_about_window` failure. The test now passes.
 - The new queued-import regression fails before the integration fix. All 13 window tests pass after it.
 - All ten selected ID/index regressions pass. Three compatibility cases already passed before the fix.

@@ -347,6 +347,9 @@ pub struct DocState {
     pub external_recovery: Option<String>,
     /// Last desktop polling observation; explicit file.status performs a fresh read.
     pub external_file_state: Option<serde_json::Value>,
+    /// Metadata taken before the last full poll read that matched this baseline (see
+    /// [`file_refresh::precheck`]). Valid only while the baseline is unchanged.
+    pub external_stamp: Option<(figcraft_format::file_sync::Baseline, figcraft_format::file_sync::Stamp)>,
     pub revision: u64,
     pub view: ViewState,
     pub interaction: Option<Interaction>,
@@ -424,6 +427,7 @@ impl DocState {
             file_baseline: None,
             external_recovery: None,
             external_file_state: None,
+            external_stamp: None,
             revision: 1,
             view: ViewState::default(),
             interaction: None,

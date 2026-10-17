@@ -42,7 +42,9 @@ still answers control requests in its own state, including `ui.inspect`. Window 
 Raw `ui.input` events are accepted into that window's buffer for its next frame. No frame is drawn
 by these calls, so canvas geometry and focus information can reflect the last drawn frame.
 Requests to visible windows still wait for their frame. Hidden-window handlers retain the
-upstream panic/recovery guard.
+upstream panic/recovery guard. A window that `window.new` opened while the main window draws
+nothing counts as hidden: the main window's frame creates it, so it does not exist yet. Requests
+to it, including untargeted requests after it took the focus, answer at once in the same way.
 
 **Guarded targets (local fork).** `document.inspect` and each `window.list` entry expose a `target`:
 `{instance, document, path, revision, window}`. Pass it as `params.target` on later calls.

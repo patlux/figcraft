@@ -1,6 +1,6 @@
 # Where FigCraft falls short of Figma
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-16 · **Change:** minor (local synchronization work on main, merged with upstream d1d8c3f. Includes bounded canvas pan overscan and the existing synchronization guards. Installed integration and WASM verification remain pending. Estimates unchanged. Earlier changes remain in the revision history.) · **Target:** Figma Design (desktop app 126.10.7)
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-17 · **Change:** minor (metadata precheck for external-file polling and a hidden-window request fix; local synchronization work on main, merged with upstream d1d8c3f. Includes bounded canvas pan overscan and the existing synchronization guards. Installed integration and WASM verification remain pending. Estimates unchanged. Earlier changes remain in the revision history.) · **Target:** Figma Design (desktop app 126.10.7)
 
 Every known shortfall against Figma, one entry each, ranked by how much it stops a Figma user from
 doing real work in FigCraft. Agents: pick work from the top unless the owner says otherwise. The
@@ -17,7 +17,8 @@ hidden windows. `file.status` distinguishes saved flags from current disk/design
 Controlled generator adoption retains recovery and history. Hidden-tab polling refreshes clean, noninteractive native files.
 Queued imports from upstream's drop-to-open flow defer replacement in every window.
 A bounded native smoke verifies minimized refresh, adoption and conflicts with inspected window captures.
-After the upstream merge, workspace tests report 2,428 passed, zero failed and eight ignored.
+Polls skip the full read while file metadata matches a previous matching read.
+Workspace tests report 2,431 passed, zero failed and eight ignored.
 Installed Pi/bridge/CLI integration and large-file polling latency remain open. This is not an installed-workflow or Figma parity claim. Selected upstream #675/#608 guards also reject malformed layer targets and document indices.
 See [file synchronization](file-synchronization.md) and the [requirement/upstream audit](agent-workflow-audit.md).
 Ranked parity estimates are unchanged.
@@ -414,6 +415,7 @@ No alpha blockers: the alpha gate in [`roadmap.md`](roadmap.md#alpha-gate) passe
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-17 | minor | M0.9: external-file polling skips unchanged files by metadata; a window not created yet answers while the main window is hidden. Workspace: 2,431 passed, zero failed, eight ignored. Estimates unchanged. |
 | 2026-10-16 | minor | M0.9: merge upstream d1d8c3f into local main after the synchronization branch. Preserve fork guards and defer replacement during queued imports in any window. Workspace: 2,428 passed, zero failed, eight ignored. Native smoke passes. WASM target and installed integration remain pending. Estimates unchanged. |
 | 2026-10-16 | minor | Selected #675/#608 parameter guards: ten passing regressions, seven fail before the fix. Requirement/upstream audit records evidence, deferred candidates and release limits. Estimates unchanged. |
 | 2026-10-16 | minor | Bounded native smoke verifies minimized refresh without UI frames, adoption, conflict retention and three window captures. Installed integration and large-file latency remain open. Estimates unchanged. |

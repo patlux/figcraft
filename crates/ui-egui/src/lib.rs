@@ -1156,8 +1156,9 @@ impl FigApp {
     }
 
     /// Inspect one tracked document per second without a frame or focus change.
-    /// This intentionally reads exact bytes, not only mtime/length. Large files can block this
-    /// first synchronous implementation up to the bounded file read/parse/encode work.
+    /// A full check reads exact bytes, not only mtime/length. After a full read matched the
+    /// baseline, later polls only compare file metadata until it changes. A changed or conflicting
+    /// file is read again on each turn: large files can then block this synchronous check.
     pub fn external_file_tick(&mut self, ctx: &egui::Context) {
         if cfg!(target_arch = "wasm32") {
             return;
@@ -1181,6 +1182,11 @@ impl FigApp {
         if ds.path.is_none() || ds.file_baseline.is_none() || ds.branch_of.is_some() {
             return;
         }
+        // Taken before the full read, so a write during the read changes it again.
+        let stamp = match figcraft_engine::file_refresh::precheck(ds, std::time::SystemTime::now()) {
+            figcraft_engine::file_refresh::Precheck::Unchanged => return,
+            figcraft_engine::file_refresh::Precheck::Read(stamp) => stamp,
+        };
         // Never refresh while UI fields/raw input, a modal dialog or a drag may commit later.
         let blocked = self.file_replacement_blocked(ctx);
         let previous = ds.external_file_state.as_ref().and_then(|s| s["state"].as_str()).map(str::to_owned);
@@ -1207,6 +1213,9 @@ impl FigApp {
         }
         if let Some(ds) = self.session.docs.get_mut(index) {
             ds.external_file_state = Some(result.clone());
+            if let Some(stamp) = stamp.filter(|_| state == "current") {
+                figcraft_engine::file_refresh::remember(ds, stamp);
+            }
         }
         if state == "refreshed"
             && let Some(ds) = self.session.docs.get(index)

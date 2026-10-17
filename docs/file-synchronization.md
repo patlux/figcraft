@@ -77,9 +77,16 @@ These tests are not a demonstration in the installed native app.
 ## External-file refresh
 
 The desktop checks one open tab per second, including tabs in hidden windows.
-It reads exact bytes instead of trusting mtime or size alone.
+The first check after an open, save or refresh reads exact bytes instead of trusting mtime or size alone.
 The polling clock uses a monotonic wall clock: egui's UI time stops while hidden-window logic runs.
 With many tabs, each tab waits for its next turn.
+
+A full read that matches the saved baseline records the file's metadata from before that read.
+The metadata includes device, inode, size, modification time and status change time.
+While the baseline and this metadata stay the same, later polls skip the read and hash.
+A replacement changes the inode. An in-place write changes the status change time, which ordinary programs cannot restore.
+The poller does not record metadata with timestamps less than two seconds old. Coarse file-system timestamps can hide a later same-size write.
+Explicit `file.status` and `file.refresh` calls always read the exact bytes.
 
 A changed native `.figcraft` file refreshes only when the document is clean and noninteractive.
 Pending raw input, UI fields, dialogs and queued file imports defer replacement. Local edits produce a conflict.
@@ -104,8 +111,16 @@ The upstream merge adds a regression for queued imports in the main pane or anot
 It fails before the replacement guard and passes after it. All 13 window tests pass.
 These are synthetic dispatcher tests, not native runtime evidence.
 
-Current limits: polling and changed-file parsing run synchronously on the session thread.
-The file-size bound limits bytes, not latency. Large documents can stall the UI.
+The installed `8a59c3a` build read and hashed every open file on each poll turn.
+A 211 MB document then kept the main thread about 56% busy, with stalls of over one second.
+An Engine regression checks the metadata precheck with replacement, same-size in-place writes, fresh timestamps and new baselines.
+A window regression fails before the precheck: its unchanged second poll took the writer lock and read again.
+After the change, that poll skips the read, and an external replacement still refreshes the document.
+
+Current limits: full reads and changed-file parsing run synchronously on the session thread.
+The file-size bound limits bytes, not latency. The first poll after an open, save or refresh can stall the UI for large documents.
+Changed, conflicting, deferred and invalid files are read again on each turn until their state changes.
+The metadata precheck assumes a local file system with a reliable clock. Network file systems are not verified.
 Recovery files are retained and are not automatically pruned.
 Only native `.figcraft` originals auto-refresh. Other formats need an explicit separate native candidate.
 

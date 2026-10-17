@@ -54,6 +54,51 @@ fn refresh_updates_clean_document_without_reopen_and_preserves_previous_history(
 }
 
 #[test]
+fn poll_precheck_skips_only_unchanged_settled_metadata_of_the_current_baseline() {
+    use crate::file_refresh::{Precheck, precheck, remember};
+    use std::time::{Duration, SystemTime};
+    let f = Fixture::new("precheck");
+    let mut s = Session::new();
+    s.execute("file.save", &json!({"path": f.path})).unwrap();
+    let later = || SystemTime::now() + Duration::from_secs(60);
+    // Fresh timestamps can hide a same-size write on coarse file systems: never remember them.
+    assert_eq!(precheck(s.ds().unwrap(), SystemTime::now()), Precheck::Read(None));
+    let Precheck::Read(Some(stamp)) = precheck(s.ds().unwrap(), later()) else { panic!("settled stamp expected") };
+    remember(s.ds_mut().unwrap(), stamp);
+    assert_eq!(precheck(s.ds().unwrap(), later()), Precheck::Unchanged);
+
+    // An in-place write of the same size, with the modification time restored, still differs.
+    let disk = std::fs::read(&f.path).unwrap();
+    let modified = std::fs::metadata(&f.path).unwrap().modified().unwrap();
+    let mut altered = disk.clone();
+    *altered.last_mut().unwrap() ^= 0xff;
+    std::thread::sleep(Duration::from_millis(20));
+    let file = std::fs::OpenOptions::new().write(true).open(&f.path).unwrap();
+    std::io::Write::write_all(&mut &file, &altered).unwrap();
+    file.set_modified(modified).unwrap();
+    drop(file);
+    assert_eq!(std::fs::metadata(&f.path).unwrap().len(), disk.len() as u64);
+    assert!(matches!(precheck(s.ds().unwrap(), later()), Precheck::Read(Some(_))), "status change time differs");
+    std::fs::write(&f.path, &disk).unwrap();
+
+    // A replacement by another writer differs, and so does a new baseline after a save.
+    let Precheck::Read(Some(stamp)) = precheck(s.ds().unwrap(), later()) else { panic!("settled stamp expected") };
+    remember(s.ds_mut().unwrap(), stamp);
+    let mut other = Session::empty();
+    other.execute("file.open", &json!({"path": f.path})).unwrap();
+    other.execute("file.rename", &json!({"name": "Replaced"})).unwrap();
+    other.execute("file.save", &json!({})).unwrap();
+    assert!(matches!(precheck(s.ds().unwrap(), later()), Precheck::Read(Some(_))), "new inode");
+    let reopened = Fixture::new("precheck-save");
+    s.execute("file.saveAs", &json!({"path": reopened.path})).unwrap();
+    let Precheck::Read(Some(stamp)) = precheck(s.ds().unwrap(), later()) else { panic!("settled stamp expected") };
+    remember(s.ds_mut().unwrap(), stamp);
+    s.execute("file.rename", &json!({"name": "Saved again"})).unwrap();
+    s.execute("file.save", &json!({})).unwrap();
+    assert!(matches!(precheck(s.ds().unwrap(), later()), Precheck::Read(_)), "another baseline");
+}
+
+#[test]
 fn refresh_reports_local_corrupt_missing_and_interactive_conflicts() {
     for case in ["dirty", "corrupt", "missing", "preview"] {
         let f = Fixture::new(case);

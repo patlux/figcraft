@@ -287,6 +287,40 @@ fn pending_file_drops_defer_external_refresh_in_every_window() {
 }
 
 #[test]
+fn external_poll_does_not_reread_an_unchanged_settled_file() {
+    let (ctx, mut app, w) = two_windows();
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let dir = std::env::temp_dir().join(format!("figcraft-poll-stamp-{}-{stamp}", std::process::id()));
+    std::fs::create_dir(&dir).unwrap();
+    let path = dir.join("original.figcraft");
+    let lock = dir.join("original.figcraft.figcraft-lock");
+    let saved = request(&mut app, "engine.execute", json!({"window": w, "command": "file.save", "params": {"path": path}}));
+    logic(&ctx, &mut app, &[ViewportId::ROOT, crate::windows::viewport(w)]);
+    saved.try_recv().unwrap().result.unwrap();
+    // Metadata of a file written within the coarsest timestamp granularity is never trusted.
+    std::thread::sleep(std::time::Duration::from_millis(2100));
+    let index = app.session.docs.iter().position(|d| d.doc.name == "A").unwrap();
+    let poll = |app: &mut FigApp| {
+        app.external_poll_cursor = index;
+        app.next_external_poll = None;
+        let _ = ctx.run_logic(&RawInput::default(), |ctx| app.external_file_tick(ctx));
+        app.session.docs[index].external_file_state.as_ref().unwrap()["state"].as_str().unwrap().to_owned()
+    };
+    assert_eq!(poll(&mut app), "current");
+    // A full check takes the writer lock, which leaves its empty lock file behind.
+    std::fs::remove_file(&lock).unwrap();
+    assert_eq!(poll(&mut app), "current");
+    assert!(!lock.exists(), "an unchanged, settled file is not locked and read again");
+    let mut external = Session::empty();
+    external.execute("file.open", &json!({"path": path})).unwrap();
+    external.execute("file.rename", &json!({"name": "External after unchanged polls"})).unwrap();
+    external.execute("file.save", &json!({})).unwrap();
+    assert_eq!(poll(&mut app), "refreshed");
+    assert_eq!(app.session.docs[index].doc.name, "External after unchanged polls");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn hidden_windows_answer_ui_inspection_without_a_frame() {
     let (ctx, mut app, w) = two_windows();
     let other = crate::windows::viewport(w);
@@ -437,4 +471,31 @@ fn a_request_for_a_window_on_screen_wakes_it_while_the_main_window_is_hidden() {
     logic(&ctx, &mut app, &[ViewportId::ROOT]);
     assert!(ui.try_recv().is_err(), "answered in the other window's frame");
     assert!(woken.lock().unwrap().contains(&other), "the other window is asked to draw: {:?}", woken.lock().unwrap());
+}
+
+#[test]
+fn a_window_not_created_yet_answers_while_the_main_window_is_hidden() {
+    let (ctx, mut app, w) = two_windows();
+    // The main window's frame creates a new window. While it is hidden, no such frame comes.
+    let n = crate::control::handle(&mut app, &ctx, "window.new", &json!({})).unwrap()["window"].as_u64().unwrap();
+    assert_eq!(app.windows.focused, n, "untargeted calls go to the new window");
+    let input = |main_hidden: bool| {
+        let mut input = RawInput::default();
+        input.viewports.insert(ViewportId::ROOT, ViewportInfo { minimized: Some(false), occluded: Some(main_hidden), ..Default::default() });
+        input.viewports.insert(crate::windows::viewport(w), ViewportInfo { minimized: Some(false), occluded: Some(true), ..Default::default() });
+        input
+    };
+    let screenshot = json!({"window": n, "path": "/tmp/figcraft-uncreated-window-not-written.png"});
+    let listed = request(&mut app, "window.list", json!({}));
+    let shot = request(&mut app, "ui.screenshot", screenshot.clone());
+    let _ = ctx.run_logic(&input(true), |ctx| crate::control::drain_hidden(&mut app, ctx));
+    let windows = listed.try_recv().expect("answered without waiting for the window to exist").result.unwrap();
+    assert!(windows.as_array().unwrap().iter().any(|v| v["id"] == json!(n)), "{windows}");
+    assert!(shot.try_recv().expect("refused at once").result.unwrap_err().contains("visible"));
+    assert!(app.control_queue.is_empty());
+    // On screen, the main window's next frame creates the window: a capture waits for it.
+    let shot = request(&mut app, "ui.screenshot", screenshot);
+    let _ = ctx.run_logic(&input(false), |ctx| crate::control::drain_hidden(&mut app, ctx));
+    assert!(shot.try_recv().is_err(), "waits for the window's first frame");
+    assert_eq!(app.control_queue.len(), 1);
 }
