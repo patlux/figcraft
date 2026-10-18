@@ -457,6 +457,7 @@ No alpha blockers: the alpha gate in [`roadmap.md`](roadmap.md#alpha-gate) passe
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-18 | minor | M0.9: control requests wake the main window; no more lost wakes after document changes in another window. Estimates unchanged. |
 | 2026-10-17 | minor | M0.9: upstream 0a01188 merged into the slim fork; protected file I/O uses the automation roots. Estimates unchanged. |
 | 2026-10-17 | minor | M0.9: slim fork. Remove automatic file polling and generator adoption. Keep protected saves, guarded targets, file status and explicit refresh. Estimates unchanged. |
 | 2026-10-17 | minor | M0.9: external-file polling skips unchanged files by metadata; a window not created yet answers while the main window is hidden. Workspace: 2,431 passed, zero failed, eight ignored. Estimates unchanged. |

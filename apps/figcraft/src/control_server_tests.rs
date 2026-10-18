@@ -280,3 +280,19 @@ fn timed_out_requests_release_a_full_deferred_ui_queue() {
         worker.join().unwrap().unwrap();
     }
 }
+
+#[test]
+fn a_request_wakes_the_main_window_even_during_another_windows_frame() {
+    // Only the main window's logic moves requests from this queue to the UI. A request that
+    // arrives while another window draws must still wake the main window, or it waits for an
+    // unrelated wake (seen as stalls of 10 s and more after a document change in another window).
+    let ctx = egui::Context::default();
+    let woken = Arc::new(Mutex::new(Vec::new()));
+    let log = woken.clone();
+    ctx.set_request_repaint_callback(move |info| log.lock().unwrap().push(info.viewport_id));
+    let other = egui::ViewportId::from_hash_of("another window");
+    let mut input = egui::RawInput { viewport_id: other, ..Default::default() };
+    input.viewports.insert(other, egui::ViewportInfo::default());
+    ctx.run_ui(input, |ui| wake(ui.ctx())).textures_delta.clear();
+    assert!(woken.lock().unwrap().contains(&egui::ViewportId::ROOT), "woken: {:?}", woken.lock().unwrap());
+}

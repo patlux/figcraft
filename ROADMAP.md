@@ -131,6 +131,8 @@ Ranked; detail and milestones in [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Progress log
 
+- **2026-10-18** · Control wake (M0.9, local fork): the installed-chain test found requests that waited 10 s or more after a document change in another window. The control server woke whichever window was drawing, but only the main window's logic takes requests from its queue. Requests now wake the main window. A regression that runs the wake during another window's frame fails before the fix. Estimates unchanged.
+
 - **2026-10-17** · Upstream 0a01188 in the slim fork (M0.9, local fork): upstream now has hidden-window control (#332, #720), the parameter guards (#675, #608), the drop queue (#601) and grouped scripts (#673). The fork uses those and keeps protected saves, guarded targets, file status, explicit refresh and CPU inner-shadow blend modes. Protected reads, writes and locks go through the automation roots (#715); a new regression fails when they bypass them. Workspace: 2,755 passed, eight ignored. Two upstream automation-root tests fail on macOS because `/var` links to `/private/var`; they are unchanged. Estimates unchanged.
 
 - **2026-10-17** · Slim fork (M0.9, local fork): automatic file polling and generator adoption are removed. Upstream has no file watching, and the poller kept a permanent background cost. The fork keeps protected saves, guarded control targets, `file.status` and an explicit `file.refresh`. An agent calls `refresh_file` after an external write. The native smoke now refreshes explicitly while minimized and visible, and keeps a local conflict. Estimates unchanged.
@@ -345,6 +347,7 @@ Ranked; detail and milestones in [`docs/roadmap.md`](docs/roadmap.md).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-18 | minor | M0.9: control requests wake the main window, whose logic moves them to the UI. Before, a request during another window's frame waited 10 s or more. One regression fails before the fix. Estimates unchanged. |
 | 2026-10-17 | minor | M0.9: merge upstream 0a01188 into the slim fork. Upstream hidden-window control (#720) replaces the fork variant. Protected file I/O uses the automation roots (#715). Workspace: 2,755 passed, two upstream macOS failures in automation-root tests, eight ignored. Estimates unchanged. |
 | 2026-10-17 | minor | M0.9: slim fork. Remove automatic file polling and generator adoption, keep protected saves, guarded targets, file status and explicit refresh. Native smoke uses explicit refresh. Estimates unchanged. |
 | 2026-10-17 | minor | M0.9: metadata precheck for external-file polling, and immediate answers for a window that a hidden main window has not created yet. Two before-fix failures. Workspace: 2,431 passed, zero failed, eight ignored. Native smoke passes. Estimates unchanged. |

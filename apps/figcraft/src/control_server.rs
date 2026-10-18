@@ -60,6 +60,13 @@ fn spawn_connection(stream: TcpStream, queue: Queue, ctx: CtxSlot, workers: &mut
     }
 }
 
+/// Wake the app for a queued request. Only the main window's logic moves requests to the UI, so
+/// wake the main window: `request_repaint` would wake whichever window is drawing at that moment
+/// (local fork; a request then waited for an unrelated wake, 10 s or more).
+fn wake(ctx: &egui::Context) {
+    ctx.request_repaint_of(egui::ViewportId::ROOT);
+}
+
 fn serve(mut out: TcpStream, queue: Queue, ctx: CtxSlot, timeout: Duration) -> std::io::Result<()> {
     out.set_read_timeout(Some(timeout))?;
     out.set_write_timeout(Some(timeout))?;
@@ -98,7 +105,7 @@ fn serve(mut out: TcpStream, queue: Queue, ctx: CtxSlot, timeout: Duration) -> s
                 pending.push(ControlRequest { id: id.clone(), method, params, reply: tx, cancelled: cancelled.clone() });
                 drop(pending);
                 if let Some(c) = ctx.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref() {
-                    c.request_repaint();
+                    wake(c);
                 }
                 match rx.recv_timeout(timeout) {
                     Ok(r) => match r.result {

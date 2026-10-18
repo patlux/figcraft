@@ -50,6 +50,11 @@ Local fork: a window that `window.new` opened from a window on screen, while the
 draws nothing, counts as hidden until the main window's frame creates it. Requests to it,
 including untargeted requests after it took the focus, answer at once in the same way.
 
+Local fork: each request wakes the main window, whose logic moves requests to the UI. Upstream
+wakes whichever window draws at that moment. A request that arrives during another window's
+frame, for example just after a document change there, then waits for an unrelated wake.
+On macOS that was 10 s or more; a later request released it at once.
+
 **Guarded targets (local fork).** `document.inspect` and each `window.list` entry expose a `target`:
 `{instance, document, path, revision, window}`. Pass it as `params.target` on later calls.
 The app validates it on the session thread immediately before dispatch, including hidden-window calls.

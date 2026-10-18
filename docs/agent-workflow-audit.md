@@ -13,6 +13,7 @@ This audit does not claim installed synchronization or Figma parity.
 | Explicit `file.refresh` (MCP `refresh_file`) | Fork only | Loads an external write into the open document with a recovery copy and one undo step. |
 | Queued imports refuse replacement in every window | Fork only | Upstream's drop queue could otherwise edit a document that a refresh replaced. |
 | A window not created yet counts as hidden | Fork only | Without it, untargeted requests wait for a window that the hidden main window never creates. |
+| Control requests wake the main window | Fork only | Upstream wakes the window that draws at that moment. A request during another window's frame then waited 10 s or more. |
 | CPU inner-shadow blend modes | Fork only | Upstream still draws inner shadows with Normal. No current design depends on other modes. |
 | Protected I/O behind upstream automation roots (#715) | Fork only | The fork's tracked reads, writes and locks use the same roots as every other engine file access. |
 
@@ -30,6 +31,9 @@ See `/Users/patwoz/dev/Personal/thirdparty/figcraft/docs/file-synchronization.md
 
 ## Verification summary
 
+- The installed-chain test on 2026-10-18 found lost control-request wakes. After a document change in a hidden window,
+  9 of 80 direct requests waited 2 s or more, up to over 25 s. The main thread was idle in its event loop.
+  A second request released each stalled request within 0.02 s. A control-server regression fails before the fix.
 - Workspace after the merge: **2,755 passed, two failed, eight ignored**.
 - The two failures are upstream automation-root tests on macOS:
   `file_access::tests::links_that_lead_out_of_a_root_are_outside` and `file_access::tests::outside_paths_are_refused_alike_whatever_exists_there`.
@@ -51,6 +55,7 @@ It is not an end-to-end test of Pi, the bridge, the packaged CLI and the install
 - Protected saves and guarded targets, so that the fork can shrink further.
 - CPU inner-shadow blend modes.
 - The window that a hidden main window has not created yet.
+- The control-server wake of the main window.
 - The macOS path comparison in `lexically_inside`.
 
 Nobody submitted these yet. A pull request needs an explicit request.
