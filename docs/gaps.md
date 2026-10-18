@@ -253,6 +253,9 @@ No alpha blockers: the alpha gate in [`roadmap.md`](roadmap.md#alpha-gate) passe
 - **Landed (2026-10-15):** a bounded render margin is reused during panning and refilled before
   the visible view reaches its edge. The extra rendered area is capped at 1.6× visible pixels;
   this reduces blank strips without changing the CPU renderer.
+  sixteenth of the pixels first, then refined. With no measure to go by (the first render, another
+  page, a zoom after quick renders), a watchdog thread previews any such render still running
+  after 12 ms (desktop only; the browser renders inline).
 - **Evidence (measured, `cargo xtask bench`):** a 50k-layer page ~8 ms zoomed out with levels of
   detail, single-layer edits at 10k layers ~0.2 ms; full 1440×900 renders 7–15 ms at 10k layers.
   Heavy effects (glass, background blur, noise) and 4K/5K canvases at 2x are where CPU time grows.
