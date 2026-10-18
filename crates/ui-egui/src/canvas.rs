@@ -944,13 +944,6 @@ fn overlays(app: &FigApp, painter: &egui::Painter, t: &Tokens) -> Vec<(NodeId, [
         if labelled && let Some(q) = crate::frame_labels::draw(app, painter, t, &doc, *c, sel.contains(c), ds.hover == Some(*c)) {
             labels.push((*c, q.map(|p| app.to_page(p))));
         }
-        // Component sets keep Figma's purple dashed frame on the canvas: editor chrome, not a
-        // document paint, so it never shows in an export.
-        if matches!(n.kind, NodeKind::ComponentSet { .. })
-            && let Some(q) = node_quad(app, &doc, *c)
-        {
-            painter.add(Shape::dashed_line(&[q[0], q[1], q[2], q[3], q[0]], stroke(COMPONENT, 1.0), 4.0, 3.0));
-        }
     }
     // Prototype connections.
     crate::proto_canvas::draw(app, painter);

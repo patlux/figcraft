@@ -167,15 +167,23 @@ pub fn parse_path_data(d: &str) -> Option<figcraft_geom::BezPath> {
 }
 
 /// How much a vector's path is scaled to take the size asked for: with both sides, each scales
-/// independently (as resizing a vector does); with one, the other keeps its proportion. A size
-/// asked for on an axis the geometry has none of is an error, not silently ignored.
+/// independently (as resizing a vector does); with one, the other keeps its proportion. A size on
+/// an axis the geometry has none of is an error unless it is 0 (a line's height), and a size of 0
+/// or less on an axis it has is refused rather than flattening it.
 fn vector_scale(width: Option<f64>, height: Option<f64>, bw: f64, bh: f64, what: &str) -> std::result::Result<(f64, f64), String> {
     let fit = |asked: Option<f64>, have: f64, axis: &str| match asked {
-        Some(a) if have > 1e-9 => Ok(a.max(0.0) / have),
-        Some(_) => Err(format!("`{axis}` can't size {what} with no {} extent", if axis == "width" { "horizontal" } else { "vertical" })),
         None => Ok(1.0),
+        Some(a) if have <= 1e-9 => {
+            if a == 0.0 {
+                Ok(1.0)
+            } else {
+                Err(format!("`{axis}` can't size {what} with no {} extent", if axis == "width" { "horizontal" } else { "vertical" }))
+            }
+        }
+        Some(a) if a > 0.0 && (a / have).is_finite() => Ok(a / have),
+        Some(_) => Err(format!("`{axis}` must be a positive, finite size: 0 or less would flatten {what}")),
     };
-    let (sx, sy) = match (width, height) {
+    Ok(match (width, height) {
         (Some(_), Some(_)) => (fit(width, bw, "width")?, fit(height, bh, "height")?),
         (Some(_), None) => {
             let s = fit(width, bw, "width")?;
@@ -186,11 +194,7 @@ fn vector_scale(width: Option<f64>, height: Option<f64>, bw: f64, bh: f64, what:
             (s, s)
         }
         (None, None) => (1.0, 1.0),
-    };
-    if sx <= 0.0 && sy <= 0.0 {
-        return Err(format!("`width` and `height` would make {what} 0×0"));
-    }
-    Ok((sx, sy))
+    })
 }
 
 pub fn create(s: &mut Session, p: &Value) -> Result<Value> {

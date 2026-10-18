@@ -51,20 +51,6 @@ fn frame_outlines_and_slices_draw_when_shown() {
     assert!(!outlined(&shapes, quad(&u, inner)) && dashes_along(&shapes, sq[0], sq[1]) == 0, "both turn off again");
 }
 
-#[test]
-fn component_sets_draw_their_editor_outline() {
-    let mut s = Session::new();
-    let a = id(&s.execute("node.create", &json!({"type": "component", "x": 0, "y": 0, "width": 100, "height": 40})).unwrap());
-    let b = id(&s.execute("node.create", &json!({"type": "component", "x": 200, "y": 0, "width": 100, "height": 40})).unwrap());
-    let set = id(&s.execute("component.combineVariants", &json!({"ids": [a, b]})).unwrap());
-    s.execute("select.set", &json!({"ids": []})).unwrap();
-    assert!(s.doc().unwrap().node(set).unwrap().strokes.is_empty(), "the outline is not a document stroke");
-    let mut u = Ui::new(s);
-    let q = crate::canvas::node_quad(&u.app, u.app.session.doc().unwrap(), set).unwrap();
-    let shapes = flat(&u.frame_output(vec![]).shapes);
-    assert!(dashes_along(&shapes, q[0], q[1]) > 3, "the set shows its dashed outline");
-}
-
 /// A job a few hundred milliseconds of rendering big.
 fn big_job(doc: &Arc<figcraft_doc::Document>, page: figcraft_doc::NodeId, scale: f64) -> crate::render_worker::Job {
     crate::render_worker::Job {

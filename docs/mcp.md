@@ -491,8 +491,8 @@ on; `key` resolves keys the way the canvas does. Commands behind keys:
 `vector.create {path | points}` makes the layer's box from the geometry; `width`/`height` scale
 the geometry to the size asked for (with both, each side independently; with one, the other keeps
 its proportion). A path or point set that draws nothing is refused instead of making an invisible
-0×0 layer, as is a size on an axis the geometry has none of and a size that would collapse both
-axes.
+0×0 layer, as is a size on an axis the geometry has none of (except 0, such as a horizontal line's
+height) and a size of 0 or less on an axis it has, which would flatten it.
 
 Vector edit mode is driven with `run_command` (or `pointer`/`key` for gestures):
 `vector.edit.begin {id? | ids?}` (default the selection; converts shapes to vectors; several layers
@@ -1040,10 +1040,11 @@ branches). Driven with `run_command`:
   name, property, branch, main, deletedBy?}]}`. `layers` are the changed layers with their property
   changes formatted like Inspect (`fill #2563EB → #DC2626`); `document` lists styles, variables,
   comments and file settings. A conflict is the same property changed on both sides to different
-  values (key `<layer id>/<property>`, e.g. `4/fills`; fills, strokes and effects compare item by
-  item, so changing different items of one list on each side, or adding items at its end on one
-  side, merges without a conflict; a layer's parent and position are one
-  property, `parent`), a layer deleted on one side while the other edited it or what's inside it
+  values (key `<layer id>/<property>`, e.g. `4/fills`; fills, strokes, effects, layout grids,
+  export settings, guides, prototype interactions, annotations and Dev Mode resources compare item
+  by item, so changing different items of one list on each side, or adding items at its end on one
+  side, merges without a conflict; other lists, such as code links, compare whole; a layer's parent
+  and position are one property, `parent`), a layer deleted on one side while the other edited it or what's inside it
   (`<layer id>/layer`, with `deletedBy`), or a document-level entry or setting changed on both sides
   (`style/<id>`, `variable/<id>`, `comment/<id>`, `doc/<property>`…).
 - `branch.merge {id?, resolutions?}` merges the branch into the main file as one undo step,

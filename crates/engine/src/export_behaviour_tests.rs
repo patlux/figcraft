@@ -318,20 +318,6 @@ fn svg_export_options() {
 }
 
 #[test]
-fn a_component_sets_editor_outline_is_not_exported() {
-    let mut s = Session::new();
-    let a = id(&ex(&mut s, "node.create", json!({"type": "component", "x": 0, "y": 0, "width": 100, "height": 40})));
-    let b = id(&ex(&mut s, "node.create", json!({"type": "component", "x": 300, "y": 0, "width": 100, "height": 40})));
-    let set = id(&ex(&mut s, "component.combineVariants", json!({"ids": [a, b]})));
-    assert!(s.doc().unwrap().node(set).unwrap().strokes.is_empty(), "the purple dashed frame is editor chrome, not a stroke");
-    let svg = text(&export(&mut s, json!({"ids": [set], "format": "svg"})));
-    assert!(!svg.to_ascii_lowercase().contains("9747ff") && !svg.contains("stroke-dasharray"), "{svg}");
-    let png = pixels(&export(&mut s, json!({"ids": [set]})));
-    let purple = png.pixels().filter(|p| p[3] > 0 && p[0].abs_diff(0x97) < 24 && p[1].abs_diff(0x47) < 24 && p[2].abs_diff(0xFF) < 24).count();
-    assert_eq!(purple, 0, "the exported set has no purple outline pixels");
-}
-
-#[test]
 fn copy_as_png_svg_and_code() {
     let mut s = Session::new();
     let a = rect(&mut s, 0.0, 0.0, 40.0, 20.0, "#FF0000", None);

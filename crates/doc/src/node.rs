@@ -565,14 +565,14 @@ impl Node {
             NodeKind::Text(_) => vec![Paint::solid(Color::BLACK)],
             _ => vec![],
         };
-        // A component set's purple dashed frame is editor chrome: the canvas draws it, and it is
-        // never a stroke in the document, so exports don't show it.
         let strokes = match &kind {
             NodeKind::Line => vec![Paint::solid(Color::BLACK)],
+            NodeKind::ComponentSet { .. } => vec![Paint::solid(Color::from_rgb8_const(0x97, 0x47, 0xFF))],
             _ => vec![],
         };
         let stroke = match &kind {
             NodeKind::Line | NodeKind::Vector { .. } => StrokeProps { align: StrokeAlign::Center, ..Default::default() },
+            NodeKind::ComponentSet { .. } => StrokeProps { dashes: vec![10.0, 5.0], ..Default::default() },
             _ => StrokeProps::default(),
         };
         let blend = if kind.is_container() { BlendMode::PassThrough } else { BlendMode::Normal };
