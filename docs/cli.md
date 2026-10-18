@@ -133,11 +133,6 @@ and exits with code 1:
 ```
 
 `--out` saves the result by extension like `convert`.
-Native `.figcraft` and JSON destinations must be new, or match the baseline of the explicit `--in` file.
-An external change or an unrelated existing destination is an error, not an overwrite.
-Native writes use the same baseline checks and short-lived OS locks as the app.
-Use unique candidate paths for generators. An open app document does not refresh automatically yet.
-See [file synchronization](file-synchronization.md) for the protocol and its limits.
 
 Script formats: a JSON array of `{"command": id, "params": {...}}`, an object
 `{"commands": [...]}`, or JSON lines (one step per line; blank lines and `//` lines are skipped).
@@ -171,7 +166,7 @@ machines.
 
 Serve MCP on stdio: headless by default, or attached to a running app started with
 `figcraft --control PORT`. See [mcp.md](mcp.md). `--autosave` (or `FIGCRAFT_MCP_AUTOSAVE=1`) saves
-the document to its file after every tool call that changes it, through the protected save. The automation roots (each repeatable; existing
+the document to its file after every tool call that changes it. The automation roots (each repeatable; existing
 folders) confine the files the agent's calls read (inside a read or write root) and write (inside a
 write root); everything else is refused ([mcp.md › Confining file access](mcp.md#confining-file-access)).
 With `--attach` they are refused: start the app with them instead. The headless session can host, join and publish
@@ -205,3 +200,17 @@ carry overrides at every level, in one file and as a library in another. It then
 table with the build time and edits of a deep main component (icon colour, glyph size, an added
 layer) and of the 72 button mains, where all copies follow. Zeros are dropped and counts above
 100,000 are capped to 100,000; `--instances 0` skips this table.
+
+## Local fork
+
+Everything above is upstream's documentation, including the open upstream PRs the fork merges.
+This block is the fork's own; keep it last, and keep nothing of the fork's above it.
+
+### Protected native writes
+
+`run --out`, `convert` and `mcp --autosave` write native `.figcraft` and JSON files through the
+same protected save as the app: a destination must be new, or match the baseline of the explicit
+`--in` file. An external change or an unrelated existing destination is an error, not an
+overwrite. Native writes use the same baseline checks and short-lived OS locks as the app. Use
+unique candidate paths for generators; an open app document does not refresh by itself (call
+`refresh_file`). See [file synchronization](file-synchronization.md) for the protocol and its limits.

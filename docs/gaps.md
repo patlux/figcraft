@@ -1,25 +1,12 @@
 # Where FigCraft falls short of Figma
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-18 · **Change:** minor (local fork: upstream `d8ff144` merged, file status ignores the theme repaint of default page colours; open upstream PRs #801, #287, #285, #607, #661, #659 (with #623), #320, #618, #696 (with #748) and #538 merged, the agent tools of #593 ported; slim file synchronization (protected saves, guarded targets, file status, explicit refresh) and CPU inner-shadow blend modes; the 2026-10-17 landings: `.fig` import fidelity, budgets for large files, the import report, a `.fig` copy from Save as and paste from another design app (gap 1); menus, the Actions palette, editor fixes, Selection colors and smart-selection spacing (gap 4); catalog counts re-measured (gap 5); bounded canvas pan overscan; reviewed Russian catalog and integer plurals; `.fig` export: instance sizes, variables with modes, shared styles, variable-width strokes; sharing with a join code; text box sizes measured against documents re-saved by other software; live sessions per document; .fig export checked by opening written files in other software; experimental .fig export; keyboard shortcut parity suite and bindings; Simplified Chinese draft catalog; Latin American Spanish overlay; prototyping tail: gamepad triggers, widgets in prototypes, mode lookups; plugin directory on figcraft-server; Japanese and Korean draft catalogs and CJK UI fonts; plugin widgets and the plugin panel tail; French, German and Brazilian Portuguese draft catalogs; cursor chat and spotlight in live sessions; layers and assets panels behaviour suite and fixes; vector multi-edit and edit tail; dev resources links; extended collections tail; branch version history and finer list merges; comments and version history behaviour suite and fixes; canvas navigation, guides and grids behaviour suite and fixes; `.fig` import: editable vector networks, more layer kinds, variable prototype actions; `.fig` import, best effort: gap 1 down to its tail; Windows QA pass: everyday workflows on Windows 11, eight fixes incl. unsaved work kept after a crash or a forced quit; Display P3: gamut warning and soft-proof (true P3 blocked upstream); several windows; localization layer with a draft Spanish catalog; hosting figcraft-server: wss in the desktop app, server releases, deployment guide; plugin panels and settings; canvas fixes: boolean hit testing on the result, group drags, frame outlines and slices; code connect; stretch and scatter brushes, pen pressure; text on a path and pattern fills; team libraries on the server and swap library; branches: create, update from main, review and merge; animated GIF fills and TIFF images; Open recent, outlines for the selection and mask outlines: menu breadth 100%; extended collections, variables import/export, gradient stop and variant bindings: gap 14 down to its tail) · **Target:** Figma Design (desktop app 126.10.7)
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-17 · **Change:** minor (the 2026-10-17 landings: `.fig` import fidelity, budgets for large files, the import report, a `.fig` copy from Save as and paste from another design app (gap 1); menus, the Actions palette, editor fixes, Selection colors and smart-selection spacing (gap 4); catalog counts re-measured (gap 5); bounded canvas pan overscan; reviewed Russian catalog and integer plurals; `.fig` export: instance sizes, variables with modes, shared styles, variable-width strokes; sharing with a join code; text box sizes measured against documents re-saved by other software; live sessions per document; .fig export checked by opening written files in other software; experimental .fig export; keyboard shortcut parity suite and bindings; Simplified Chinese draft catalog; Latin American Spanish overlay; prototyping tail: gamepad triggers, widgets in prototypes, mode lookups; plugin directory on figcraft-server; Japanese and Korean draft catalogs and CJK UI fonts; plugin widgets and the plugin panel tail; French, German and Brazilian Portuguese draft catalogs; cursor chat and spotlight in live sessions; layers and assets panels behaviour suite and fixes; vector multi-edit and edit tail; dev resources links; extended collections tail; branch version history and finer list merges; comments and version history behaviour suite and fixes; canvas navigation, guides and grids behaviour suite and fixes; `.fig` import: editable vector networks, more layer kinds, variable prototype actions; `.fig` import, best effort: gap 1 down to its tail; Windows QA pass: everyday workflows on Windows 11, eight fixes incl. unsaved work kept after a crash or a forced quit; Display P3: gamut warning and soft-proof (true P3 blocked upstream); several windows; localization layer with a draft Spanish catalog; hosting figcraft-server: wss in the desktop app, server releases, deployment guide; plugin panels and settings; canvas fixes: boolean hit testing on the result, group drags, frame outlines and slices; code connect; stretch and scatter brushes, pen pressure; text on a path and pattern fills; team libraries on the server and swap library; branches: create, update from main, review and merge; animated GIF fills and TIFF images; Open recent, outlines for the selection and mask outlines: menu breadth 100%; extended collections, variables import/export, gradient stop and variant bindings: gap 14 down to its tail) · **Target:** Figma Design (desktop app 126.10.7)
 
 Every known shortfall against Figma, one entry each, ranked by how much it stops a Figma user from
 doing real work in FigCraft. Agents: pick work from the top unless the owner says otherwise. The
 numbers behind the ranking are in [`target-app-parity.md`](target-app-parity.md). Hours are one
 Opus 5.5 agent working sequentially, tests included, calibrated as described there. "Estimated"
 everywhere unless marked measured.
-
-## Local agent workflow safety
-
-Native-file save conflict protection is implemented in the local fork: exact-byte baselines,
-short-lived writer locks and refusal of unseen existing destinations. Tests preserve local and
-external contents on conflict. Guarded app/document targets are validated at dispatch, including
-hidden windows. `file.status` distinguishes saved flags from current disk/design agreement without mutation.
-An explicit `file.refresh` loads an external update into a clean, noninteractive document. The app does not poll files.
-Queued imports from upstream's drop-to-open flow refuse replacement in every window.
-Automatic polling and generator adoption were removed on 2026-10-17 to keep the fork small.
-Installed Pi/bridge/CLI integration remains open. This is not an installed-workflow or Figma parity claim.
-See [file synchronization](file-synchronization.md) and the [requirement/upstream audit](agent-workflow-audit.md).
-Ranked parity estimates are unchanged.
 
 ## Ranked
 
@@ -39,10 +26,10 @@ No alpha blockers: the alpha gate in [`roadmap.md`](roadmap.md#alpha-gate) passe
 | 10 | Team libraries: no team-wide lists or accounts; analytics are counts | Feature | 4–8 | [components-parity](components-parity.md) |
 | 11 | Spell check | Feature | 4–8 | [target-app-parity](target-app-parity.md) |
 | 12 | Video fills; HEIC images | File format | 5–10 | [file-format-parity](file-format-parity.md) |
-| 13 | Vector tail: outline-stroke compositing (stroke rings preserved) | Feature | — | [target-app-parity](target-app-parity.md) |
+| 13 | Vector tail: none left (boolean hit testing on the result landed 2026-10-11) | Feature | — | [target-app-parity](target-app-parity.md) |
 | 14 | Variables: extended collections checked on real libraries (the tail landed 2026-10-12) | Feature | 0–1 | [components-parity](components-parity.md) |
 | 15 | Prototyping: media triggers and actions; controllers on macOS, Linux and FreeBSD (controller buttons on key/gamepad triggers, widgets in prototypes landed) | Feature | 2–5 | [prototyping-parity](prototyping-parity.md) |
-| 16 | Dev Mode: measurements kept on the canvas, a read-only layers panel, publishing mappings from the code repository; the editor extension is left to the MCP server (import lines, compare with versions and an inspect-only canvas landed 2026-10-15) | Feature | 2–4 | [dev-mode-parity](dev-mode-parity.md) |
+| 16 | Dev Mode: import lines inside generated layer trees; the editor extension is left to the MCP server (code connect, Dev Mode plugins and dev resources landed) | Feature | 0–1 | [dev-mode-parity](dev-mode-parity.md) |
 | 17 | Branching: branches in live sessions, lists other than fills, strokes and effects merged whole (a branch's own version history and per-item list merges landed 2026-10-12) | Feature | 1–2 | [collaboration-parity](collaboration-parity.md) |
 | 18 | Display P3 on screen: blocked upstream (egui-wgpu picks an 8-bit sRGB surface); gamut warning and soft-proof sRGB landed, as did several windows | Hardware | 4–8 | [hardware-parity](hardware-parity.md) |
 | 19 | AI features | AI | 30–60 | [target-app-parity](target-app-parity.md) |
@@ -253,9 +240,6 @@ No alpha blockers: the alpha gate in [`roadmap.md`](roadmap.md#alpha-gate) passe
 - **Landed (2026-10-15):** a bounded render margin is reused during panning and refilled before
   the visible view reaches its edge. The extra rendered area is capped at 1.6× visible pixels;
   this reduces blank strips without changing the CPU renderer.
-  sixteenth of the pixels first, then refined. With no measure to go by (the first render, another
-  page, a zoom after quick renders), a watchdog thread previews any such render still running
-  after 12 ms (desktop only; the browser renders inline).
 - **Evidence (measured, `cargo xtask bench`):** a 50k-layer page ~8 ms zoomed out with levels of
   detail, single-layer edits at 10k layers ~0.2 ms; full 1440×900 renders 7–15 ms at 10k layers.
   Heavy effects (glass, background blur, noise) and 4K/5K canvases at 2x are where CPU time grows.
@@ -323,9 +307,7 @@ No alpha blockers: the alpha gate in [`roadmap.md`](roadmap.md#alpha-gate) passe
   video need decoders that are C libraries (libheif, FFmpeg) or each platform's media framework.
 - **Estimate:** 5–10 h (video playback in the presenter is most of it; it can reuse the GIF clock).
 
-### 13. Vector tail: outline-stroke compositing
-- **Landed (2026-10-15):** Outline stroke keeps the renderer's even-odd stroke rings; regression pixels, Undo/Redo, native save/reopen and instance opacity inheritance/overrides in `outline_stroke`.
-- **Missing:** preserving filled-shape opacity, blend and effects on the composite. A follow-up must preserve component inheritance and references when deciding which node owns these properties.
+### 13. Vector tail: none left
 - **Landed (2026-10-12):** several Bezier handles selected with Shift-click and dragged together,
   sharp points beside curved segments rounded, a stroke cap and join per point (canvas, PNG, SVG,
   PDF, outline stroke), the Pen outside edit mode connecting to its own points and continuing a
@@ -341,7 +323,7 @@ No alpha blockers: the alpha gate in [`roadmap.md`](roadmap.md#alpha-gate) passe
   Ratio; Mixed across ellipses; bindable), the shape builder on strokes and open paths (strokes take
   part as their outlined areas), one-sided variable widths (Alt-drag a width handle; canvas, PNG,
   SVG, PDF and outline stroke).
-- **Estimate:** compositing not yet re-estimated; vector QA with real files remains part of gap 3.
+- **Estimate:** none left (vector QA with real files is part of gap 3).
 
 ### 14. Variables: extended collections on real libraries
 - **Landed:** extended collections (`library.extendCollection`: a library collection's modes and
@@ -389,22 +371,11 @@ No alpha blockers: the alpha gate in [`roadmap.md`](roadmap.md#alpha-gate) passe
   host, no spaces, capped) and never fetched: a link added without a name is named after its URL,
   and a link opens only when clicked. The Inspect tab lists, adds, edits and removes them;
   `get_node` / `inspect_document` return them as `devResources`.
-- **Landed (2026-10-15):** generated layer trees (React, Leptos, SwiftUI, Compose) start with the
-  import lines of the connected components they call, once each, also those in a component's
-  definition, in the slots an instance fills and placed by a connected template's instance swaps.
-  Compare changes takes any saved version as the before (`dev.compare {version}`; the view's
-  Compare with menu), for any top-level frame or section. A Dev Mode behaviour suite: the canvas
-  only inspects (presses select, pan and comment; no moving, resizing, drawing, text or vector
-  editing), the menus, shortcuts, nudges, opacity keys and paste refuse design edits with a note
-  while Dev Mode's own edits still run, drawing tools from the toolbar return to the design; the
-  ready list filters and badges Changed items (`inspect.readyForDev {status: changed}`); statuses
-  are refused on layers inside frames. Read-only plugins run from the Inspect tab show their
-  panels.
-- **Missing:** measurements kept on the canvas for others (only hover redlines); the layers panel
-  and files dropped on the canvas still edit in Dev Mode; publishing mappings from the code
-  repository with a CLI. An editor extension is out of scope: the MCP server already serves design
-  data, code and the connected snippets to agents and editors.
-- **Estimate:** 2–4 h.
+- **Missing:** import lines for connected instances inside a
+  generated layer tree (only the selected layer's own import is shown); publishing mappings from
+  the code repository with a CLI. An editor extension is out of scope: the MCP server already
+  serves design data, code and the connected snippets to agents and editors.
+- **Estimate:** 0–1 h.
 
 ### 17. Branching and merging
 - **Landed (2026-10-11):** branches of a file (`branch.*`): File ▸ Create branch… (or the Branches
@@ -473,25 +444,8 @@ No alpha blockers: the alpha gate in [`roadmap.md`](roadmap.md#alpha-gate) passe
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-18 | minor | M0.9: upstream d8ff144 merged; file status ignores the #659 theme repaint of default page colours. Estimates unchanged. |
-| 2026-10-18 | minor | M0.9: open upstream PRs #801, #287, #285, #607, #661, #659 (with #623), #320, #618, #696 (with #748) and #538 merged; the engine, MCP and CLI agent tools of #593 ported. Estimates unchanged. |
-| 2026-10-18 | minor | M0.9: upstream e956581 (v0.7.0) merged into the slim fork. Estimates unchanged. |
-| 2026-10-18 | minor | M0.9: control requests wake the main window; no more lost wakes after document changes in another window. Estimates unchanged. |
-| 2026-10-17 | minor | M0.9: upstream 0a01188 merged into the slim fork; protected file I/O uses the automation roots. Estimates unchanged. |
-| 2026-10-17 | minor | M0.9: slim fork. Remove automatic file polling and generator adoption. Keep protected saves, guarded targets, file status and explicit refresh. Estimates unchanged. |
-| 2026-10-17 | minor | M0.9: external-file polling skips unchanged files by metadata; a window not created yet answers while the main window is hidden. Workspace: 2,431 passed, zero failed, eight ignored. Estimates unchanged. |
-| 2026-10-16 | minor | M0.9: merge upstream d1d8c3f into local main after the synchronization branch. Preserve fork guards and defer replacement during queued imports in any window. Workspace: 2,428 passed, zero failed, eight ignored. Native smoke passes. WASM target and installed integration remain pending. Estimates unchanged. |
-| 2026-10-16 | minor | Selected #675/#608 parameter guards: ten passing regressions, seven fail before the fix. Requirement/upstream audit records evidence, deferred candidates and release limits. Estimates unchanged. |
-| 2026-10-16 | minor | Bounded native smoke verifies minimized refresh without UI frames, adoption, conflict retention and three window captures. Installed integration and large-file latency remain open. Estimates unchanged. |
-| 2026-10-16 | minor | Hidden-tab external refresh with conflict retention and monotonic polling time. Two Engine tests and one hidden-window poll regression pass. Native runtime and large-file latency remain open. Estimates unchanged. |
-| 2026-10-16 | minor | Controlled generator adoption, recovery, retained history and lost-reply outcome observation. Four Engine tests and a hidden-window dispatcher test pass. Automatic refresh and native runtime verification remain pending. Estimates unchanged. |
-| 2026-10-16 | minor | Exact file-status observations and MCP tool, with three before-fix failures and four Engine regressions. Automatic refresh/adoption still pending. Estimates unchanged. |
-| 2026-10-16 | minor | Guarded app/document control targets, with hidden-window and bridge regressions. No activation or live synchronization claim. Estimates unchanged. |
-| 2026-10-16 | minor | Local save-conflict protection and remaining synchronization work recorded. Four before-fix Engine failures now pass; eight format tests include cross-process locking. No automatic refresh, adoption, live UI verification or installation yet. Estimates unchanged. |
 | 2026-10-17 | minor | The 2026-10-17 landings. Gap 1: a new Landed entry (community batches #727 and #728, then #745: instance identity and cached library components, overrides by key, text style precedence, grid track sizes, slot content, labels of connectors saved with their path, skip ink, paragraph options, list start numbers, vertical trim, per-point stroke joins, text on a path, image adjustments, images in the message, instance layers' size and resizing overrides, Hug where nothing is recorded; budgets from the file's size; the import report; a `.fig` copy from Save as; paste from another design app), its Missing list cut to what is still left, and the wrong "whether other apps open its files is unknown" replaced by what was checked; all on synthetic files, so the beta blocker and hours stand. Gap 2: server limits, log recovery and web join links in the evidence. Gap 4: menus, the Actions palette and the editor fixes (#733, #735, #736, #729), then Selection colors and smart-selection spacing (#753) landed, none compared side by side. Gap 5: catalog counts re-measured (2,272 entries; drafts at 95–99%; Indonesian, Czech, Turkish and Swedish listed). Gap 8: the Linux and BSD clipboard changes and Wayland window controls, not run there by the maintainers. Ranking and hours unchanged |
-| 2026-10-15 | minor | M4: Outline stroke preserves even-odd stroke holes. Pixel comparisons cover alignment, dashes, individual side weights, vector paths and stroke-only opacity; native save/reopen, Undo/Redo and instance opacity inheritance/overrides are covered by `outline_stroke`. Existing estimates unchanged; filled-shape compositing needs separate work. |
 | 2026-10-15 | minor | Gap 7: bounded canvas overscan for smoother panning. Estimates and ranking unchanged. |
-| 2026-10-15 | minor | Gap 16: import lines inside generated layer trees, compare with any saved version, an inspect-only Dev Mode canvas (menus and shortcuts refuse design edits), Changed in the ready list, statuses only on sections and top-level frames, read-only plugins' panels from the Inspect tab. Left: measurements kept on the canvas, a read-only layers panel, publishing mappings with a CLI; 0–1 h → 2–4 h |
 | 2026-10-14 | minor | Russian catalog (M9), reviewed and approved by VanTan: all 2,165 current entries, Русский in Preferences and regional ru tags. Russian integer plurals use one/few/many; contributor display name VanTan added. Existing estimates unchanged. |
 | 2026-10-13 | minor | Gap 1: the experimental `.fig` export writes instance sizes (resized, filling an auto layout, scaled), variables with modes and bindings, shared styles and variable-width strokes, and the import reads them back. Checked by opening written files in other software: resized and scaled instances keep their size and lay their layers out for it, variables with their modes and colour bindings resolve there (a frame set to another mode shows that mode's colours, also inside instances), colour, text, effect and grid styles are listed, and variable-width strokes that are the same on both sides of the path draw with their width; number, string and boolean bindings and bindings on effects, layout guides and gradient stops come across as the values they give but did not show as bound there (their entries now also name the layer field they set, not yet checked there), and strokes wider on one side of the path are written as filled outlines, no longer editable strokes there (the stroke itself is kept as plugin data and our own import puts it back; not yet checked there). Hours and the ranking unchanged |
 | 2026-10-12 | minor | Gap 2: your online files landed (the app records the files it put on a server with their owner tokens, Home ▸ Online lists them and opens them again as their owner, with sharing, rename, removal and forget from the list; one request per server tells which are still there; tabs mark files in a live session). What is left is unchanged: accounts, teams and per-person permissions, shared comments and versions. Hours unchanged |

@@ -17,12 +17,10 @@ The server lives in `crates/mcp` (`figcraft-mcp`) and is started by the CLI:
 | `figcraft-cli mcp` | **Headless**: an in-process engine session with one untitled document. No window; renders with the CPU renderer. |
 | `figcraft-cli mcp --attach <port>` | **Attached**: drives a running FigCraft app through its control channel (`figcraft --control <port>`). The user sees every change live. |
 
-Both take `--autosave` (or `FIGCRAFT_MCP_AUTOSAVE=1`; local fork, from upstream PR #593): after every
-tool call that changes the document, the server saves it to its file, so the file on disk always
-holds the agent's latest work. A document without a file yet isn't saved; the first change tells the
-agent, once, to call `save_file` with a path. Read-only tools never save. In this fork autosave uses
-the protected save: a file another program changed since it was opened or saved is never
-overwritten, and the tool result carries a note instead.
+Both take `--autosave` (or `FIGCRAFT_MCP_AUTOSAVE=1`; from upstream PR #593): after every tool
+call that changes the document, the server saves it to its file, so the file on disk always holds
+the agent's latest work. A document without a file yet isn't saved; the first change tells the
+agent, once, to call `save_file` with a path. Read-only tools never save.
 
 `--attach` also takes `host:port`. The control channel only listens on 127.0.0.1.
 
@@ -94,20 +92,6 @@ Each may be given more than once, as `--flag DIR` or `--flag=DIR`:
 - A path is checked, then opened: another program that swaps a folder for a link in between can
   still win that race. The roots keep an agent to the files it was given, not other software on the
   computer; if that matters, run the server as a user that can't change the roots' folders.
-### Local fork: file status
-
-`file_status` calls the read-only `file.status` command.
-It checks exact disk bytes and compares the native design with the live document.
-Use `savedAndCurrent: true` as point-in-time evidence after a save.
-`dirty: false` alone does not prove disk agreement.
-Design hashes include images but exclude the current page, thumbnail and history. In the app, the two
-theme-given page colours count as one, because a theme change repaints them without an edit.
-A history-only edit keeps `savedAndCurrent` false until a successful save.
-The tool does not refresh, merge or overwrite anything.
-`refresh_file {target}` loads a changed external native file into the same clean, noninteractive document.
-The app does not watch or poll files: call it after an external write. Conflicts preserve both sides.
-A save over an external change is refused. Use `file_status` for a fresh disk observation.
-See [file synchronization](file-synchronization.md) for preconditions, target checks and writer-lock limits.
 
 ### Fonts
 
@@ -1787,3 +1771,37 @@ The end-to-end tests in `crates/mcp/tests/agent_tasks.rs` are worked examples of
 (auto layout, a card built in one batch with step references, components and overrides, gradients
 and shadows, paint styles, Light/Dark variables, align/distribute/group, boolean subtract + flatten,
 export, undo/redo, drawing with tools).
+
+## Local fork
+
+Everything above is upstream's documentation, including the open upstream PRs the fork merges
+(their text stays where upstream will put it). This block is the fork's own; keep it last, and keep
+nothing of the fork's above it. The contracts are in [file synchronization](file-synchronization.md);
+the audit of what the fork adds is in [agent-workflow-audit.md](agent-workflow-audit.md).
+
+### File status and explicit refresh
+
+`file_status` calls the read-only `file.status` command.
+It checks exact disk bytes and compares the native design with the live document.
+Use `savedAndCurrent: true` as point-in-time evidence after a save.
+`dirty: false` alone does not prove disk agreement.
+Design hashes include images but exclude the current page, thumbnail and history. In the app, the two
+theme-given page colours count as one, because a theme change repaints them without an edit.
+A history-only edit keeps `savedAndCurrent` false until a successful save.
+The tool does not refresh, merge or overwrite anything.
+`refresh_file {target}` loads a changed external native file into the same clean, noninteractive document.
+The app does not watch or poll files: call it after an external write. Conflicts preserve both sides.
+A save over an external change is refused. Use `file_status` for a fresh disk observation.
+See [file synchronization](file-synchronization.md) for preconditions, target checks and writer-lock limits.
+
+### Protected saves
+
+`save_file`, the app's own saves and `--autosave` go through the protected save: a file that
+another program changed since it was opened or last saved is never overwritten. The save is
+refused, both sides stay, and with `--autosave` the tool result carries a note instead of saving.
+
+### Guarded targets
+
+`inspect_document` and `list_windows` expose a `target` (`{instance, document, path, revision,
+window}`); pass it as `target` on later calls and the app refuses the call when the process, the
+active document, its path or the window changed. See [control-protocol.md › Local fork](control-protocol.md#local-fork).

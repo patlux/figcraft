@@ -46,25 +46,6 @@ answer (`ui.screenshot`, `ui.input`, `window.new`) is an error at once (`window 
 hidden: …`) instead of waiting for the window to show; `ui.render` draws the document without it.
 Under Wayland the app can't tell that its window is minimised: where the compositor then stops
 drawing it, a request waits for the window and gets the 60 s timeout error.
-Local fork: a window that `window.new` opened from a window on screen, while the main window
-draws nothing, counts as hidden until the main window's frame creates it. Requests to it,
-including untargeted requests after it took the focus, answer at once in the same way.
-
-Local fork: each request wakes the main window, whose logic moves requests to the UI. Upstream
-wakes whichever window draws at that moment. A request that arrives during another window's
-frame, for example just after a document change there, then waits for an unrelated wake.
-On macOS that was 10 s or more; a later request released it at once.
-
-**Guarded targets (local fork).** `document.inspect` and each `window.list` entry expose a `target`:
-`{instance, document, path, revision, window}`. Pass it as `params.target` on later calls.
-The app validates it on the session thread immediately before dispatch, including hidden-window calls.
-A different process instance, active document, path, window or supplied revision is an error without dispatch.
-Omit only `revision` for an identity pin that survives your own edits. Keep the other fields unchanged.
-`instance` is routing metadata, not authentication. Legacy calls without a target retain their old behavior.
-A bridge can require guards for its own callers, but this is not access control for other local programs.
-After a deliberate Save As, open, close or tab switch, inspect and explicitly choose the new target.
-Guarded `ui.input` is refused: its deferred raw events cannot retain document identity until the next frame.
-Use engine commands or immediate `ui.pointer`, `ui.key` and `ui.type` instead.
 
 Coordinates are page units, y down. `x`/`y` in `node.set`/`node.create` are relative to the parent
 frame (groups have no coordinate space of their own).
@@ -74,8 +55,7 @@ an optional `window` (an id from `window.list`; `0` is the main window) and then
 window, with its tabs, panels and canvas: `engine.execute` acts on the file it shows,
 `ui.screenshot` captures it, `ui.input` reaches it. Without `window`, a request goes to the window
 last in front (the one the user clicked last, or the last `window.new` / `window.focus`). An
-unknown id is an error. Hidden-window requests run from the main window's logic, which runs even
-while every window is hidden.
+unknown id is an error.
 
 ## Confining file access
 
@@ -318,7 +298,7 @@ focus view shows, or `null`) and `annotationFilter`).
 ### `ui.screenshot {path?, after?}`
 
 PNG of the whole window (`window` picks one), UI included (needs a visible window; an idle one draws the frame to
-capture). `after` (seconds, at most 30; local fork, from upstream PR #593) waits for the UI to settle
+capture). `after` (seconds, at most 30; from upstream PR #593) waits for the UI to settle
 before the capture, for example after a click's effect or an animation. Returns `{path, width, height}`, without `path` `{format: "png", width, height, data}`
 (base64); an error at once when the window is minimised or hidden, or after 60 s when the window
 doesn't deliver.
@@ -369,3 +349,42 @@ read -r reply <&3; echo "$reply"
 
 For agents, prefer the MCP server (`figcraft-cli mcp --attach 7979`, see `docs/mcp.md`): it wraps
 these methods in documented tools and returns images inline.
+
+## Local fork
+
+Everything above is upstream's documentation, including the open upstream PRs the fork merges.
+This block is the fork's own; keep it last, and keep nothing of the fork's above it. See
+[file synchronization](file-synchronization.md) and [agent-workflow-audit.md](agent-workflow-audit.md).
+
+### Guarded targets
+
+`document.inspect` and each `window.list` entry expose a `target`:
+`{instance, document, path, revision, window}`. Pass it as `params.target` on later calls.
+The app validates it on the session thread immediately before dispatch, including hidden-window calls.
+A different process instance, active document, path, window or supplied revision is an error without dispatch.
+Omit only `revision` for an identity pin that survives your own edits. Keep the other fields unchanged.
+`instance` is routing metadata, not authentication. Legacy calls without a target retain their old behavior.
+A bridge can require guards for its own callers, but this is not access control for other local programs.
+After a deliberate Save As, open, close or tab switch, inspect and explicitly choose the new target.
+Guarded `ui.input` is refused: its deferred raw events cannot retain document identity until the next frame.
+Use engine commands or immediate `ui.pointer`, `ui.key` and `ui.type` instead.
+
+### `file.status` and `file.refresh`
+
+`file.status {}` (MCP `file_status`) reports whether the open document matches its file on disk
+without changing anything; `file.refresh {target}` (MCP `refresh_file`) loads an external change
+into a clean document with a recovery copy and one undo step, and reports a conflict instead when
+the document has local changes. `file.save` refuses to replace a file another program changed.
+See [file synchronization](file-synchronization.md).
+
+### Hidden windows and wakes
+
+Hidden-window requests run from the main window's logic, which runs even while every window is
+hidden. A window that `window.new` opened from a window on screen, while the main window draws
+nothing, counts as hidden until the main window's frame creates it. Requests to it, including
+untargeted requests after it took the focus, answer at once in the same way.
+
+Each request wakes the main window, whose logic moves requests to the UI. Upstream wakes
+whichever window draws at that moment. A request that arrives during another window's frame, for
+example just after a document change there, then waits for an unrelated wake. On macOS that was
+10 s or more; a later request released it at once.
