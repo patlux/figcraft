@@ -1,7 +1,7 @@
 //! Enter and Escape on text, and the page a new file gets in each theme, driven through egui
 //! headless: Enter on a selected text layer edits it with all of its text selected (what a
 //! double-click into it does), typing replaces it, and Escape leaves editing with the layer still
-//! selected; File ▸ New in the dark theme makes a dark page.
+//! selected; File ▸ New in the dark theme makes a dark page, which follows later theme changes.
 
 use egui::{Event, Key, Modifiers};
 use figcraft_color::Color;
@@ -60,7 +60,9 @@ fn enter_edits_a_selected_text_with_all_of_it_selected_and_escape_keeps_the_laye
 }
 
 #[test]
-fn a_new_file_takes_the_page_colour_of_the_theme_and_keeps_it() {
+fn a_new_file_takes_the_page_colour_of_the_theme_and_follows_it() {
+    // Pages still on their theme-given colour follow the theme when it changes (#659); a chosen
+    // colour stays, and an added page takes its page's colour, not the theme's.
     let mut s = Session::new();
     s.prefs.theme = "dark".into();
     let mut u = Ui::new(s);
@@ -69,13 +71,16 @@ fn a_new_file_takes_the_page_colour_of_the_theme_and_keeps_it() {
     assert_eq!(page_colour(&u), Color::DARK_PAGE);
     u.app.run("view.themeLight", json!({}));
     u.frame(vec![]);
-    assert_eq!(page_colour(&u), Color::DARK_PAGE, "a change of theme leaves the page alone");
+    assert_eq!(page_colour(&u), Color::DEFAULT_PAGE, "a page on its theme-given colour follows the theme");
     u.app.run("file.new", json!({}));
     assert_eq!(page_colour(&u), Color::DEFAULT_PAGE, "a file made in the light theme");
+    let chosen = Color::from_hex("#336699").unwrap();
+    u.app.run("page.setBackground", json!({"color": "#336699"}));
     u.app.run("view.themeDark", json!({}));
     u.frame(vec![]);
+    assert_eq!(page_colour(&u), chosen, "a chosen colour stays");
     u.app.run("page.add", json!({}));
-    assert_eq!(page_colour(&u), Color::DEFAULT_PAGE, "a page added in the dark theme follows its light page");
+    assert_eq!(page_colour(&u), chosen, "a page added in the dark theme follows its page");
     u.app.run("file.new", json!({}));
     assert_eq!(page_colour(&u), Color::DARK_PAGE, "a file made in the dark theme");
 }
