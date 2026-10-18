@@ -29,6 +29,7 @@ pub(crate) fn native(bytes: &[u8]) -> Result<figcraft_format::Loaded> {
 
 /// Hash a native design, including image bytes and published libraries, without history or view.
 /// Native encoding has deterministic member order and timestamps. No thumbnail is included.
+#[cfg(test)]
 pub(crate) fn design_hash(doc: &figcraft_doc::Document) -> Result<String> {
     hash_owned(doc.clone())
 }
