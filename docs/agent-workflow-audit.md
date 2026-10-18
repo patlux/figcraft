@@ -63,7 +63,7 @@ it needs a token shared by the LaunchAgent, the bridge and the CLI.
 - A new Engine regression checks that status, refresh and save stay inside automation roots. It fails when the fork's I/O bypasses the roots.
 - Workspace clippy with warnings denied, formatting, layering, assets and packaging checks pass.
 - The native smoke passes with explicit refresh while minimized and visible, and with a preserved conflict.
-  Three reviewed 2400×1600 captures are in `/tmp/figcraft-d8ff144-smoke-20261018`.
+  Three reviewed 2400×1600 captures are in `/tmp/figcraft-d8ff144-smoke-c-20261018`.
 - The local WASM target is absent. GitHub Actions run the WASM check after a push.
 
 The native example uses `NoServices` and direct Engine commands, with no control listener or user preferences.
