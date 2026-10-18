@@ -1,6 +1,7 @@
 # Local agent workflow audit
 
-Date: 2026-10-18. Scope: the slim local fork on `main`, merged with upstream `d8ff1441b1cd47cb45f1e58b030409ef6f1e24bf` (v0.7.0, community batch 18, #798, #801, #802/#804) and with open upstream PRs, and the paired Python bridge and agent skill.
+Date: 2026-10-19. Scope: the slim local fork on `main`, merged with upstream `a0d1162976fac1e4a8b8fd49a3948e9d6bad6f40` (v0.7.0, community batch 18, #798, #801, #802/#804, Dependabot #825, refused unknown command-line options #844) and with open upstream PRs, and the paired Python bridge and agent skill.
+The fork's manifest, sync script and runbook are in `/Users/patwoz/dev/Personal/infra/nix/hosts/darwin/mbpromax/figcraft/` (`fork-manifest.toml`, `sync-upstream.sh`, `SYNC.md`).
 This audit does not claim installed synchronization or Figma parity.
 
 ## What the fork adds to upstream
@@ -24,7 +25,8 @@ See `/Users/patwoz/dev/Personal/thirdparty/figcraft/docs/file-synchronization.md
 ## Open upstream PRs in the fork
 
 The fork merges these open upstream PRs as they are, with real merge commits:
-#801, #287, #285, #607, #661, #659 (with #623), #320, #618, #696 (with #748) and #538.
+#287, #285, #607, #661, #659 (with #623), #320, #618, #696 (with #748), #538 and #819 (#801 is in upstream since `d8ff144`).
+The manifest records each PR's merged head; `sync-upstream.sh check` reports when a head moves or a PR is merged or closed upstream.
 
 | From #593 | Status |
 |---|---|
@@ -53,17 +55,16 @@ it needs a token shared by the LaunchAgent, the bridge and the CLI.
 - The installed-chain test on 2026-10-18 found lost control-request wakes. After a document change in a hidden window,
   9 of 80 direct requests waited 2 s or more, up to over 25 s. The main thread was idle in its event loop.
   A second request released each stalled request within 0.02 s. A control-server regression fails before the fix.
-- Workspace after upstream `d8ff144`: **2,914 passed, two failed, nine ignored** (2,905 after the open-PR batch, 2,819 after upstream `e956581`, 2,755 after `0a01188`).
-- The two failures are upstream automation-root tests on macOS:
+- Workspace after upstream `a0d1162` and #819: **2,919 passed, zero failed, nine ignored** (2,914 with two macOS failures after `d8ff144`, 2,905 after the open-PR batch, 2,819 after upstream `e956581`, 2,755 after `0a01188`).
+- Until #819, two upstream automation-root tests failed on macOS only:
   `file_access::tests::links_that_lead_out_of_a_root_are_outside` and `file_access::tests::outside_paths_are_refused_alike_whatever_exists_there`.
-  Both expect the reason "leads nowhere" for a dangling link inside a root. On macOS the temporary folder is under `/var`, a link to `/private/var`.
-  `lexically_inside` compares the unresolved path with the resolved root, so the refusal names the generic reason.
-
-  The path is still refused. Upstream CI runs these tests on Linux only. The fork leaves the tests and the upstream code unchanged.
+  Both expect the reason "leads nowhere" for a dangling link inside a root. On macOS the temporary folder is under `/var`, a link to `/private/var`,
+  and `lexically_inside` compared the unresolved path with the resolved root. #819 resolves the longest existing leading part first; both tests
+  and its new `a_root_given_through_a_link_tells_why_paths_in_it_are_refused` pass on macOS. Zero failures is the normal state again.
 - A new Engine regression checks that status, refresh and save stay inside automation roots. It fails when the fork's I/O bypasses the roots.
 - Workspace clippy with warnings denied, formatting, layering, assets and packaging checks pass.
 - The native smoke passes with explicit refresh while minimized and visible, and with a preserved conflict.
-  Three reviewed 2400×1600 captures are in `/tmp/figcraft-d8ff144-smoke-c-20261018`.
+  Three reviewed 2400×1600 captures are in `/tmp/figcraft-3151a01-smoke-20261019` (before: `/tmp/figcraft-d8ff144-smoke-c-20261018`).
 - The local WASM target is absent. GitHub Actions run the WASM check after a push.
 
 The native example uses `NoServices` and direct Engine commands, with no control listener or user preferences.
@@ -79,6 +80,8 @@ inner shadows honor their blend mode on shapes, frames and groups; SVG vector an
 still use Normal. Import/export: tracked `.figcraft` saves refuse external changes (byte baselines,
 participating-writer locks; explicit refresh, no file watching). Ranked estimates are unchanged by
 the fork.
+
+- **2026-10-19** · Upstream a0d1162, #819 and the sync process (M0.9, local fork): the fork now includes upstream `a0d1162` (Dependabot #825; the desktop app refuses unknown command-line options, #844) and open PR #819, whose root check resolves the longest existing part of a path first. The two automation-root tests that failed on macOS only pass; the workspace is at 2,919 passed, zero failed, nine ignored. The fork no longer edits upstream's progress docs: `ROADMAP.md`, `docs/gaps.md`, `docs/roadmap.md` and `docs/*-parity.md` are upstream's, this log replaces the fork's entries there, and `docs/mcp.md`, `docs/control-protocol.md` and `docs/cli.md` carry the fork's notes in one `## Local fork` block each at the end. A manifest (`fork-manifest.toml`), a check/release script (`sync-upstream.sh`) and a runbook (`SYNC.md`) in the infra repository describe the fork and the sync. The native smoke passes. Estimates unchanged.
 
 - **2026-10-18** · Upstream d8ff144 and theme-neutral file status (M0.9, local fork): the fork now includes upstream `d8ff144`: item-by-item branch merges for layout grids, code links and interactions (#798), the final form of #801 (a component set's outline stays its real stroke; `vector.create` scales its path and refuses negative or flattening sizes), a bound colour variable's alpha applied once (#802/#804) and #786. #659 repaints default page colours on a theme change without an edit. `file_status` then reported a difference from the unchanged file. In the app, the design fingerprints now count both theme-given page colours as one; headless sessions compare exactly. The new regression fails before the fix. Workspace: 2,914 passed, nine ignored; the two known upstream automation-root tests fail on macOS only. The native smoke passes. Estimates unchanged.
 - **2026-10-18** · Open upstream PRs and agent tools (M0.9, local fork): the fork merges the open upstream PRs #801, #287, #285, #607, #661, #659 (with #623), #320, #618, #696 (with #748) and #538. It ports the engine, MCP and CLI parts of #593: `create_tree`, `outline`, `lint_layout`, `text.measure`, the ID map of `edit.duplicate`, `ui.screenshot {after}` and `--autosave`. Autosave uses the protected save, so it never replaces a file that another program changed. The Preferences tab, client installer and port management of #593 are not ported. #659 changes the page colour on a theme change but kept a UI test with the old behavior; the test now checks the new behavior. Workspace: 2,905 passed, nine ignored; the two known upstream automation-root tests fail on macOS only. The native smoke passes. Estimates unchanged.
@@ -107,6 +110,6 @@ the fork.
 - CPU inner-shadow blend modes.
 - The window that a hidden main window has not created yet.
 - The control-server wake of the main window.
-- The macOS path comparison in `lexically_inside`. Open upstream PR #819 addresses it; the fork does not include it yet.
+- The macOS path comparison in `lexically_inside`: open upstream PR #819 fixes it and the fork merges it; nothing of the fork's to submit.
 
 The fork submitted none of these. A pull request from the fork needs an explicit request.
