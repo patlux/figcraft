@@ -28,6 +28,9 @@ Unsaved and branch tabs have separate states.
 
 `designMatchesDisk` compares deterministic native design fingerprints, including image bytes and published libraries.
 These fingerprints exclude the selected page, thumbnail and version history.
+In the app, a page on a theme-given colour follows the interface theme without an edit (upstream PR #659).
+The file keeps its saved colour, so the app counts both theme-given page colours as one in the fingerprints.
+Headless sessions have no theme and compare page colours exactly.
 `savedAndCurrent` also requires a clean live document and the saved-byte baseline.
 Thus design equality alone does not claim that version-history edits reached disk.
 The response is a point-in-time observation. It does not reserve the file or guarantee future agreement.

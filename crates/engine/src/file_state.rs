@@ -8,7 +8,7 @@ pub fn specs() -> Vec<crate::cmd::CommandSpec> {
     vec![spec!(
         "file.status",
         "Inspect file synchronization",
-        "{} → {target, state, dirty, baseline, disk?, liveDesignSha256?, diskDesignSha256?, designMatchesDisk, savedAndCurrent, error?}. Reads exact disk bytes now, without refreshing or saving. Design hashes exclude the current page, thumbnail and history. savedAndCurrent also requires a clean live document and the saved-byte baseline. An observation, not a lock or future guarantee.",
+        "{} → {target, state, dirty, baseline, disk?, liveDesignSha256?, diskDesignSha256?, designMatchesDisk, savedAndCurrent, error?}. Reads exact disk bytes now, without refreshing or saving. Design hashes exclude the current page, thumbnail and history; with an interface theme, the two theme-given page colours count as one. savedAndCurrent also requires a clean live document and the saved-byte baseline. An observation, not a lock or future guarantee.",
         false,
         |s, _| status(s)
     )]
@@ -30,13 +30,29 @@ pub(crate) fn native(bytes: &[u8]) -> Result<figcraft_format::Loaded> {
 /// Hash a native design, including image bytes and published libraries, without history or view.
 /// Native encoding has deterministic member order and timestamps. No thumbnail is included.
 pub(crate) fn design_hash(doc: &figcraft_doc::Document) -> Result<String> {
-    let mut doc = doc.clone();
+    hash_owned(doc.clone())
+}
+
+fn hash_owned(mut doc: figcraft_doc::Document) -> Result<String> {
     doc.current_page = None;
     let bytes = figcraft_format::save_bytes(&doc, None).map_err(|e| EngineError::Other(e.to_string()))?;
     if bytes.len() as u64 > figcraft_format::file_sync::MAX_FILE_BYTES {
         return Err(EngineError::Other("design fingerprint exceeds 512 MiB".into()));
     }
     Ok(figcraft_format::image_hash(&bytes))
+}
+
+/// In a session with an interface theme, pages on a theme-given colour follow the theme without an
+/// edit (`Session::set_ui_dark`), and the file keeps the colour it was saved with. Count both
+/// theme-given colours as one, so a theme change is no design difference.
+fn theme_neutral(doc: &mut figcraft_doc::Document) {
+    for p in doc.pages.clone() {
+        if let Some(figcraft_doc::NodeKind::Page { background, .. }) = doc.node_mut(p).map(|n| &mut n.kind)
+            && *background == figcraft_color::Color::DARK_PAGE
+        {
+            *background = figcraft_color::Color::DEFAULT_PAGE;
+        }
+    }
 }
 
 fn initial(ds: &DocState) -> Value {
@@ -84,8 +100,14 @@ pub fn status(s: &Session) -> Result<Value> {
             return Ok(out);
         }
     };
-    let live_hash = design_hash(ds.document_itself())?;
-    let disk_hash = design_hash(&loaded.doc)?;
+    let mut live = figcraft_doc::Document::clone(ds.document_itself());
+    let mut disk_doc = loaded.doc;
+    if s.ui_dark.is_some() {
+        theme_neutral(&mut live);
+        theme_neutral(&mut disk_doc);
+    }
+    let live_hash = hash_owned(live)?;
+    let disk_hash = hash_owned(disk_doc)?;
     let current = ds.file_baseline.as_ref() == Some(&disk);
     let matches = live_hash == disk_hash;
     out["state"] = json!(if current { "current" } else { "changed" });

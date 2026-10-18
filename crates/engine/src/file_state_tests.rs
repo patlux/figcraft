@@ -96,3 +96,31 @@ fn status_keeps_history_only_edits_unsaved_and_preserves_previews() {
     assert!(s.ds().unwrap().preview.is_some());
     assert_eq!(s.ds().unwrap().revision, revision);
 }
+
+#[test]
+fn a_theme_repaint_of_default_page_colours_keeps_the_file_current() {
+    // #659 repaints pages still on their theme-given colour when the interface theme changes,
+    // without an edit. The file on disk keeps its colour, so status must not report a change.
+    let f = Fixture::new("theme");
+    let mut s = f.saved();
+    s.set_ui_dark(false);
+    s.set_ui_dark(true);
+    let page = s.ds().unwrap().page;
+    let background = |s: &Session| match s.ds().unwrap().doc.node(page).unwrap().kind {
+        figcraft_doc::NodeKind::Page { background, .. } => background,
+        _ => panic!("not a page"),
+    };
+    assert_eq!(background(&s), figcraft_color::Color::DARK_PAGE, "the repaint happened");
+    let status = s.execute("file.status", &json!({})).unwrap();
+    assert_eq!(status["dirty"], false);
+    assert_eq!(status["designMatchesDisk"], true, "a theme-given colour is not a design change");
+    assert_eq!(status["savedAndCurrent"], true);
+    // A chosen colour on disk is still a difference.
+    let mut other = Session::empty();
+    other.execute("file.open", &json!({"path": f.path()})).unwrap();
+    other.execute("page.setBackground", &json!({"color": "#336699"})).unwrap();
+    other.execute("file.save", &json!({})).unwrap();
+    let status = s.execute("file.status", &json!({})).unwrap();
+    assert_eq!(status["designMatchesDisk"], false);
+    assert_eq!(status["savedAndCurrent"], false);
+}
