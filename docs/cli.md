@@ -167,10 +167,11 @@ figcraft-cli export dashboard.figcraft -o dashboard.png
 Every command with its label, shortcut, undoable flag (`*`) and parameter docs; `--json` for
 machines.
 
-### `mcp [--attach PORT] [--automation-read-root DIR]… [--automation-write-root DIR]…`
+### `mcp [--attach PORT] [--autosave] [--automation-read-root DIR]… [--automation-write-root DIR]…`
 
 Serve MCP on stdio: headless by default, or attached to a running app started with
-`figcraft --control PORT`. See [mcp.md](mcp.md). The automation roots (each repeatable; existing
+`figcraft --control PORT`. See [mcp.md](mcp.md). `--autosave` (or `FIGCRAFT_MCP_AUTOSAVE=1`) saves
+the document to its file after every tool call that changes it, through the protected save. The automation roots (each repeatable; existing
 folders) confine the files the agent's calls read (inside a read or write root) and write (inside a
 write root); everything else is refused ([mcp.md › Confining file access](mcp.md#confining-file-access)).
 With `--attach` they are refused: start the app with them instead. The headless session can host, join and publish

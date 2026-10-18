@@ -314,10 +314,11 @@ the annotations the canvas shows). `resetFrameStats` (true: start `framesDrawn` 
 `mentions` the picker offers, `devCompare` (`{id, mode, split}` or `null`), `devFocus` (the frame the
 focus view shows, or `null`) and `annotationFilter`).
 
-### `ui.screenshot {path?}`
+### `ui.screenshot {path?, after?}`
 
 PNG of the whole window (`window` picks one), UI included (needs a visible window; an idle one draws the frame to
-capture). Returns `{path, width, height}`, without `path` `{format: "png", width, height, data}`
+capture). `after` (seconds, at most 30; local fork, from upstream PR #593) waits for the UI to settle
+before the capture, for example after a click's effect or an animation. Returns `{path, width, height}`, without `path` `{format: "png", width, height, data}`
 (base64); an error at once when the window is minimised or hidden, or after 60 s when the window
 doesn't deliver.
 

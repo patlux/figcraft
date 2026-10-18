@@ -16,7 +16,8 @@
 //!   prototype playing (presenter or preview pane)
 //! - `ui.menu.invoke {id}` — a menu item exactly like clicking it (may open a dialog)
 //! - `ui.set {rightTab?, leftTab?, theme?, home?, homeSection?, homeSearch?, homeRecentsView?, homeRecentsSort?, homeRecentsOrder?, palette?, focusRegion?, preview?, presentScroll?, …}`
-//! - `ui.screenshot {path?}` — PNG of the window (needs a visible window), written to `path` or
+//! - `ui.screenshot {path?, after?}` — PNG of the window (needs a visible window), `after` seconds
+//!   from now (at most 30) when the UI should settle first; written to `path` or
 //!   returned as base64 `data`
 //! - `ui.render {path?, scale?, ids?}` — PNG of the document (no UI chrome; works without a
 //!   window), written to `path` or returned as base64 `data`
@@ -62,6 +63,10 @@ pub struct PendingShot {
     pub reply: std::sync::mpsc::Sender<ControlReply>,
     /// When it was asked for (UI clock, seconds).
     pub since: f64,
+    /// When to capture (`after` seconds from `since`, so the UI can settle first; from #593).
+    pub at: f64,
+    /// The window was asked for the capture (at `at`).
+    pub asked: bool,
     /// The window it captures.
     pub viewport: egui::ViewportId,
     /// Guarded captures must still describe the same document when delivered.
@@ -71,8 +76,10 @@ pub struct PendingShot {
 
 /// How long a screenshot waits for the window to deliver it (the control server gives up then too).
 const SHOT_TIMEOUT: f64 = 60.0;
+/// The longest `after` a screenshot may wait before it's taken.
+const MAX_SHOT_DELAY: f64 = 30.0;
 
-fn pending(ctx: &Context) -> std::sync::Arc<std::sync::Mutex<Vec<PendingShot>>> {
+pub(crate) fn pending(ctx: &Context) -> std::sync::Arc<std::sync::Mutex<Vec<PendingShot>>> {
     ctx.data_mut(|d| d.get_temp_mut_or_insert_with(egui::Id::new("pending_shots"), || std::sync::Arc::new(std::sync::Mutex::new(Vec::new()))).clone())
 }
 
@@ -91,7 +98,7 @@ pub fn drain(app: &mut FigApp, ctx: &Context) {
     });
     for (vp, img) in &shots {
         list.lock().unwrap_or_else(std::sync::PoisonError::into_inner).retain(|p| {
-            if p.viewport != *vp {
+            if p.viewport != *vp || !p.asked {
                 return true;
             }
             // A guarded capture must still show the same document when the frame delivers it.
@@ -130,16 +137,25 @@ pub fn drain(app: &mut FigApp, ctx: &Context) {
             let path = r.params.get("path").and_then(Value::as_str).map(str::to_string);
             let viewport = ctx.viewport_id();
             let target = r.params.get("target").map(|_| figcraft_engine::target::of(app.session.ds().ok()));
+            // `after`: capture once the UI has had time to change (an animation, a click's effect).
+            let after = r.params.get("after").and_then(Value::as_f64).filter(|a| a.is_finite()).unwrap_or(0.0).clamp(0.0, MAX_SHOT_DELAY);
+            let asked = after <= 0.0;
             list.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(PendingShot {
                 id: r.id,
                 path,
                 reply: r.reply,
                 since: now,
+                at: now + after,
+                asked,
                 viewport,
                 target,
                 window: app.windows.current,
             });
-            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
+            if asked {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
+            } else {
+                crate::repaint_in(ctx, after);
+            }
             continue;
         }
         let res = handle(app, ctx, &r.method, &r.params);
@@ -150,14 +166,22 @@ pub fn drain(app: &mut FigApp, ctx: &Context) {
     // it back), and only while frames are drawn: keep drawing until it arrives (a hidden window
     // never delivers; its requests expire).
     let mut list = list.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    for p in list.iter_mut().filter(|p| !p.asked) {
+        if now >= p.at {
+            p.asked = true;
+            ctx.send_viewport_cmd_to(p.viewport, egui::ViewportCommand::Screenshot(egui::UserData::default()));
+        } else {
+            crate::repaint_in(ctx, p.at - now);
+        }
+    }
     list.retain(|p| {
-        let live = now - p.since < SHOT_TIMEOUT;
+        let live = now - p.at < SHOT_TIMEOUT;
         if !live {
             let _ = p.reply.send(ControlReply { id: p.id.clone(), result: Err("the window didn't deliver a screenshot (is it visible?)".into()) });
         }
         live
     });
-    if !list.is_empty() {
+    if list.iter().any(|p| p.asked) {
         ctx.request_repaint();
     }
 }

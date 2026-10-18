@@ -1569,6 +1569,8 @@ fn mark_dev_changes(doc: &mut Document, before: &Document, touched: &BTreeSet<No
 #[cfg(test)]
 mod a11y_keys_tests;
 #[cfg(test)]
+mod agent_tools_tests;
+#[cfg(test)]
 mod al_behaviour_tests;
 #[cfg(test)]
 mod al_content_align_tests;

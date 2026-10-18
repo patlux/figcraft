@@ -392,3 +392,18 @@ fn a_window_not_created_yet_answers_while_the_main_window_is_hidden() {
     assert!(shot.try_recv().is_err(), "waits for the window's first frame");
     assert_eq!(app.control_queue.len(), 1);
 }
+
+#[test]
+fn a_delayed_screenshot_is_only_asked_for_when_its_time_comes() {
+    // `ui.screenshot {after}` (from upstream PR #593): capture once the UI has settled.
+    let (ctx, mut app, _) = two_windows();
+    let shot = request(&mut app, "ui.screenshot", json!({"window": 0, "path": "/tmp/figcraft-delayed-not-written.png", "after": 0.5}));
+    let mut run = |app: &mut FigApp, time: f64| {
+        ctx.run_ui(RawInput { time: Some(time), ..Default::default() }, |ui| crate::control::drain(app, ui.ctx())).textures_delta.clear();
+        crate::control::pending(&ctx).lock().unwrap().iter().map(|p| p.asked).collect::<Vec<_>>()
+    };
+    assert_eq!(run(&mut app, 10.0), vec![false], "not yet");
+    assert_eq!(run(&mut app, 10.3), vec![false], "still settling");
+    assert_eq!(run(&mut app, 10.6), vec![true], "asked once half a second has passed");
+    assert!(shot.try_recv().is_err(), "the capture is still on its way");
+}
