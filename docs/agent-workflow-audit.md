@@ -1,6 +1,6 @@
 # Local agent workflow audit
 
-Date: 2026-10-17. Scope: the slim local fork on `main`, merged with upstream `0a01188c31da237cf1ecd548b994c375c10fe757`, and the paired Python bridge and agent skill.
+Date: 2026-10-18. Scope: the slim local fork on `main`, merged with upstream `e9565813ac724abf50f1089eaeee3960a8366ffd` (v0.7.0 and community batch 18), and the paired Python bridge and agent skill.
 This audit does not claim installed synchronization or Figma parity.
 
 ## What the fork adds to upstream
@@ -34,7 +34,7 @@ See `/Users/patwoz/dev/Personal/thirdparty/figcraft/docs/file-synchronization.md
 - The installed-chain test on 2026-10-18 found lost control-request wakes. After a document change in a hidden window,
   9 of 80 direct requests waited 2 s or more, up to over 25 s. The main thread was idle in its event loop.
   A second request released each stalled request within 0.02 s. A control-server regression fails before the fix.
-- Workspace after the merge: **2,755 passed, two failed, eight ignored**.
+- Workspace after the merge of upstream `e956581`: **2,819 passed, two failed, eight ignored** (2,755 after `0a01188`).
 - The two failures are upstream automation-root tests on macOS:
   `file_access::tests::links_that_lead_out_of_a_root_are_outside` and `file_access::tests::outside_paths_are_refused_alike_whatever_exists_there`.
   Both expect the reason "leads nowhere" for a dangling link inside a root. On macOS the temporary folder is under `/var`, a link to `/private/var`.
@@ -44,7 +44,7 @@ See `/Users/patwoz/dev/Personal/thirdparty/figcraft/docs/file-synchronization.md
 - A new Engine regression checks that status, refresh and save stay inside automation roots. It fails when the fork's I/O bypasses the roots.
 - Workspace clippy with warnings denied, formatting, layering, assets and packaging checks pass.
 - The native smoke passes with explicit refresh while minimized and visible, and with a preserved conflict.
-  Three reviewed 2400×1600 captures are in `/tmp/figcraft-merge0a-smoke-20261017`.
+  Three reviewed 2400×1600 captures are in `/tmp/figcraft-e956581-smoke-20261018`.
 - The local WASM target is absent. GitHub Actions run the WASM check after a push.
 
 The native example uses `NoServices` and direct Engine commands, with no control listener or user preferences.

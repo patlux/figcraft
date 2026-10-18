@@ -40,6 +40,7 @@ pub mod live;
 pub mod live_text;
 pub mod measure_overlay;
 pub mod menus;
+pub mod missing_fonts;
 pub mod online;
 pub mod pending_open;
 pub mod plugins_ui;
@@ -117,6 +118,8 @@ mod home_tests;
 #[cfg(test)]
 mod idle_tests;
 #[cfg(test)]
+mod ime_tests;
+#[cfg(test)]
 mod import_report_tests;
 #[cfg(test)]
 mod layers_behaviour_tests;
@@ -147,6 +150,8 @@ mod menu_aim_tests;
 #[cfg(test)]
 mod menu_input_tests;
 #[cfg(test)]
+mod missing_fonts_tests;
+#[cfg(test)]
 mod online_tests;
 #[cfg(test)]
 mod open_issues_tests;
@@ -170,6 +175,8 @@ mod plugin_panel_tests;
 mod plugins_browse_tests;
 #[cfg(test)]
 mod popup_width_tests;
+#[cfg(test)]
+mod present_links_tests;
 #[cfg(test)]
 mod present_tests;
 #[cfg(test)]
@@ -430,6 +437,8 @@ pub struct UiState {
     /// The layer being renamed in the layers panel.
     pub rename: Option<layers::Rename>,
     pub rename_page: Option<(NodeId, String)>,
+    /// The frame or section whose name label on the canvas is being renamed (a double-click on it).
+    pub rename_label: Option<layers::Rename>,
     pub main_menu: bool,
     pub palette: Option<String>,
     /// The Actions palette's tab.
@@ -502,6 +511,9 @@ pub struct UiState {
     pub pending_open_frames: u8,
     /// The latest successful file import's summary and compatibility notes.
     pub import_report: Option<import_report::Report>,
+    /// Files the user opened whose fonts are yet to be checked (by document uid).
+    pub font_checks: Vec<u64>,
+    pub missing_fonts: Option<missing_fonts::Shown>,
     pub screenshot_requests: Vec<(u64, String)>,
     pub frame_ms: f64,
     pub render_ms: f64,
@@ -587,6 +599,7 @@ impl Default for UiState {
             expanded: BTreeSet::new(),
             rename: None,
             rename_page: None,
+            rename_label: None,
             main_menu: false,
             palette: None,
             palette_tab: menus::PaletteTab::All,
@@ -629,6 +642,8 @@ impl Default for UiState {
             pending_opens: Vec::new(),
             pending_open_frames: 0,
             import_report: None,
+            font_checks: Vec::new(),
+            missing_fonts: None,
             screenshot_requests: Vec::new(),
             frame_ms: 0.0,
             render_ms: 0.0,
@@ -757,6 +772,7 @@ impl FigApp {
         if let Some(result) = &result {
             import_report::capture(self, id, &params, result);
         }
+        missing_fonts::check_later(self, id, result.as_ref());
         result
     }
 
@@ -871,6 +887,7 @@ impl FigApp {
                     self.ui.about_tab = dialogs::AboutTab::About;
                 }
                 "dialog.preferences" => self.ui.preferences = true,
+                "dialog.missingFonts" => missing_fonts::request(self),
                 "panel.shortcuts" => self.ui.shortcuts_panel = !self.ui.shortcuts_panel,
                 "palette.actions" => menus::toggle_palette(&mut self.ui),
                 "panel.design" => self.ui.right_tab = RightTab::Design,
@@ -961,6 +978,9 @@ impl FigApp {
                 "layers.collapseAll" => layers::collapse_all(self),
                 "contextMenu" => self.ui.key_menu = true,
                 "selectArea" => self.start_key_box(),
+                "canvas.renameLabel" => {
+                    self.ui.rename_label = r.data.get("id").and_then(figcraft_engine::params::id_of).map(|id| layers::Rename { id, start: true });
+                }
                 "layers.rename" => {
                     let ids: Vec<NodeId> =
                         r.data.get("ids").and_then(Value::as_array).into_iter().flatten().filter_map(figcraft_engine::params::id_of).collect();
@@ -1385,6 +1405,8 @@ impl FigApp {
             }
             self.background_done(&ctx);
         }
+        // Files that arrived without a command (joined, recovered) take the kept View toggles too.
+        self.session.apply_view_prefs();
         windows::begin(self, &ctx);
         let (files, prefs) = (self.session.docs.len(), self.session.prefs.clone());
         self.frame(ui);
@@ -1667,7 +1689,9 @@ impl FigApp {
             "lastError": self.ui.last_error,
             "importReport": self.ui.import_report.as_ref().map(import_report::Report::inspect),
         });
+        state["homeSearch"] = json!(self.ui.home_view.file_query);
         state["pendingOpens"] = json!(self.ui.pending_opens.len());
+        state["missingFonts"] = json!(self.ui.missing_fonts.as_ref().map(missing_fonts::Shown::inspect));
         state
     }
 }

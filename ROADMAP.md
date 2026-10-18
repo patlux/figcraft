@@ -117,7 +117,7 @@ French, German, Brazilian Portuguese, Japanese, Korean, Simplified Chinese and I
 Language; Traditional Chinese has no catalog; CJK UI
 text uses an installed CJK font, loaded only when needed; adding a language:
 [`docs/translating.md`](docs/translating.md)). Document text in any script (bidi, Arabic shaping,
-IME) already works. Detail: [`docs/localization-parity.md`](docs/localization-parity.md).
+IME) already works (macOS IME composition fixed for #747, not yet checked on a Mac). Detail: [`docs/localization-parity.md`](docs/localization-parity.md).
 
 ## Upcoming
 
@@ -130,6 +130,8 @@ Ranked; detail and milestones in [`docs/roadmap.md`](docs/roadmap.md).
 5. Multiplayer (M9): accounts and teams on top of the live sessions and the standalone server (transport, hosting, invite links that open the app, document sync, presence with remote text carets, cursor chat and spotlight, per-user undo, reconnect with offline edits, collision-free ids for styles, variables and comments, the browser client, `figcraft-server` with persistence and share links to edit or view, team libraries on the server landed): 42–84 h.
 
 ## Progress log
+
+- **2026-10-18** · Upstream v0.7.0 in the slim fork (M0.9, local fork): the fork now includes upstream `e956581`. It brings the macOS quit crash fix (#781), an allow-list for links that documents open, the interaction delete fix (#767), the recovery lock wait (#334) and IME composition in text layers. The fork keeps its protected saves, guarded targets, explicit refresh, control wake and CPU inner-shadow blend modes. Workspace: 2,819 passed, eight ignored; the two known upstream automation-root tests fail on macOS only. The native smoke passes. Estimates unchanged.
 
 - **2026-10-18** · Control wake (M0.9, local fork): the installed-chain test found requests that waited 10 s or more after a document change in another window. The control server woke whichever window was drawing, but only the main window's logic takes requests from its queue. Requests now wake the main window. A regression that runs the wake during another window's frame fails before the fix. Estimates unchanged.
 
@@ -347,6 +349,7 @@ Ranked; detail and milestones in [`docs/roadmap.md`](docs/roadmap.md).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-18 | minor | M0.9: merge upstream e956581 (v0.7.0 and community batch 18) into the slim fork: macOS quit crash fix, document link allow-list, interaction delete fix, recovery lock wait. Workspace: 2,819 passed, the two known upstream macOS automation-root failures, eight ignored. Estimates unchanged. |
 | 2026-10-18 | minor | M0.9: control requests wake the main window, whose logic moves them to the UI. Before, a request during another window's frame waited 10 s or more. One regression fails before the fix. Estimates unchanged. |
 | 2026-10-17 | minor | M0.9: merge upstream 0a01188 into the slim fork. Upstream hidden-window control (#720) replaces the fork variant. Protected file I/O uses the automation roots (#715). Workspace: 2,755 passed, two upstream macOS failures in automation-root tests, eight ignored. Estimates unchanged. |
 | 2026-10-17 | minor | M0.9: slim fork. Remove automatic file polling and generator adoption, keep protected saves, guarded targets, file status and explicit refresh. Native smoke uses explicit refresh. Estimates unchanged. |

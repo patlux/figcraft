@@ -107,10 +107,13 @@ impl eframe::App for App {
     }
 
     fn on_exit(&mut self) {
-        with_app(|fig| services::save_state(fig));
-        if let Some(r) = recovery::lock(&self.recovery).take() {
-            r.finish();
-        }
+        // With the app out of reach (busy), its recovery copies stay for the next start.
+        let copies = recovery::lock(&self.recovery).take();
+        with_app(|fig| services::shutdown(fig, services::config_dir().as_deref(), copies));
+        // Everything is kept: end before the windows' teardown, where AppKit's Touch Bar support
+        // throws on the content view AccessKit restores (craft-libs#3, #781).
+        #[cfg(target_os = "macos")]
+        std::process::exit(0);
     }
 }
 
@@ -161,6 +164,7 @@ fn main() -> eframe::Result {
             log::error!("{f}: {e}");
         }
     }
+    let opened: Vec<u64> = session.docs.iter().map(|d| d.uid).collect();
     // Documents a crashed or killed run left unsaved come back; this run keeps its own copies.
     let recovery_root = services::config_dir().map(|d| d.join("Recovery"));
     // The preferences first: they hold the online files a recovered document may be one of.
@@ -194,6 +198,8 @@ fn main() -> eframe::Result {
     let mut fig = FigApp::new(session, Box::new(svc));
     fig.automation_roots = roots;
     fig.ui.home = false;
+    // Files named on the command line are the user's too: their missing fonts are listed.
+    fig.ui.font_checks = opened;
     fig.note_recovered(recovered.copies);
     if let Some(link) = &args.join {
         figcraft_ui_egui::live::open_invite(&mut fig, link);
