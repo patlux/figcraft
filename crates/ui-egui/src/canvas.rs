@@ -1050,8 +1050,9 @@ fn overlays(app: &FigApp, painter: &egui::Painter, t: &Tokens) -> Vec<(NodeId, [
             // A layer smaller than its handles on screen shows just its outline (they still answer
             // just outside it).
             let tiny = figcraft_engine::tools::box_sides_px(&b, zoom).1 < figcraft_engine::tools::SMALL_BOX_PX;
-            // Locked layers (selected in the layers panel) can't be resized: no handles either.
-            let handles = if sel.iter().any(|i| figcraft_engine::tools::locked_in(&doc, *i)) {
+            // Locked layers (selected in the layers panel) can't be resized, nor anything in Dev
+            // Mode: no handles either.
+            let handles = if app.session.tool.dev_mode || sel.iter().any(|i| figcraft_engine::tools::locked_in(&doc, *i)) {
                 0
             } else if is_line {
                 2

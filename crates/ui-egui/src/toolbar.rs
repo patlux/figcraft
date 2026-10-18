@@ -105,7 +105,7 @@ fn main_toolbar(app: &mut FigApp, ui: &mut Ui, canvas: Rect, t: &Tokens) {
                 app.run("tool.place", json!({}));
                 app.ui.nav.go(Region::Canvas);
             } else {
-                app.run("tool.set", json!({"tool": shown.id()}));
+                choose(app, shown);
             }
         }
         x += cell;
@@ -438,9 +438,18 @@ fn flyout(app: &mut FigApp, ui: &mut Ui, g: &Group, bottom_left: egui::Pos2) {
         if let Some(i) = ToolId::ALL.iter().position(|x| *x == tid) {
             ui.data_mut(|d| d.insert_temp(egui::Id::new(("tb_last", g.key)), i as u8));
         }
-        app.run("tool.set", json!({"tool": tid.id()}));
+        choose(app, tid);
         app.ui.tool_flyout = None;
     }
+}
+
+/// Choose `tool` from the toolbar. Dev Mode only inspects: a tool that edits leaves it for the
+/// design.
+fn choose(app: &mut FigApp, tool: ToolId) {
+    if app.ui.right_tab == crate::RightTab::Inspect && !matches!(tool, ToolId::Move | ToolId::Hand | ToolId::Comment) {
+        app.ui.right_tab = crate::RightTab::Design;
+    }
+    app.run("tool.set", json!({"tool": tool.id()}));
 }
 
 /// A tool group's flyout (an egui area).

@@ -36,6 +36,9 @@ pub const UI_COMMANDS: &[&str] = &[
 /// other way to read it). `at`: the page point to paste at (Paste here); `None` pastes in the
 /// middle of the view.
 pub fn paste(app: &mut FigApp, event_text: Option<&str>, at: Option<(f64, f64)>) {
+    if dev_mode_refuses(app, "edit.paste") {
+        return;
+    }
     // Only HTML that holds readable design data takes this path; other HTML pastes as before.
     if let Some(html) = app.services.clipboard_get_html().filter(|h| figcraft_engine::cmd::edit::design_clipboard_buffer(h).is_some()) {
         let mut params = json!({"html": html});
@@ -112,7 +115,22 @@ pub fn record_recent(app: &mut FigApp, key: &str) {
     r.truncate(figcraft_engine::MAX_RECENT_ACTIONS);
 }
 
+/// Dev Mode (the Inspect tab) refuses command `id` from the menus, shortcuts and clipboard: it
+/// edits the design ([`figcraft_engine::devinspect::dev_mode_allows`]). Says so when it does.
+/// shortcut: the layers panel (rename, reorder, hide, lock) and files dropped on the canvas still
+/// edit in Dev Mode; route them through here if people trip over it.
+pub fn dev_mode_refuses(app: &mut FigApp, id: &str) -> bool {
+    let refused = app.ui.right_tab == crate::RightTab::Inspect && !figcraft_engine::devinspect::dev_mode_allows(id);
+    if refused {
+        app.toast(tr("Dev Mode only inspects: switch to Design (Shift+D) to edit"));
+    }
+    refused
+}
+
 pub fn invoke(app: &mut FigApp, id: &str) {
+    if dev_mode_refuses(app, id) {
+        return;
+    }
     match id {
         // Edit ▸ Delete (and the Delete binding) with an interaction open in the Prototype tab
         // removes that interaction, not the layer (#767).
