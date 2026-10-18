@@ -10,7 +10,8 @@
 //! `--automation-read-root <dir>` / `--automation-write-root <dir>` (each repeatable) confine the
 //! files the window and the control channel read and write (`figcraft_engine::file_access`); the
 //! app's own folders (settings, recovery copies, installed plugins) and opening the files given on
-//! the command line are not. A root that isn't an existing folder stops the app at startup.
+//! the command line are not. A root that isn't an existing folder stops the app at startup, and so
+//! does any flag the app doesn't know (a mistyped root flag must not start the app unconfined).
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 #![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
 
@@ -129,6 +130,12 @@ fn main() -> eframe::Result {
         return Ok(());
     }
     let args = args::parse(&args);
+    if let Some(flag) = args.unknown.first() {
+        eprintln!(
+            "FigCraft: unknown option {flag}\nUsage: figcraft [--control PORT] [--automation-read-root DIR]... [--automation-write-root DIR]... [FILE | figcraft://join?...]..."
+        );
+        std::process::exit(2);
+    }
     let roots = match (
         args.read_roots.is_empty() && args.write_roots.is_empty(),
         figcraft_engine::file_access::Roots::new(&args.read_roots, &args.write_roots),
