@@ -22,6 +22,7 @@ pub mod codegen;
 pub mod collab;
 pub mod component_codegen;
 pub mod components;
+pub mod datafill;
 pub mod dev_resources;
 pub mod devcompare;
 pub mod devinspect;
@@ -52,15 +53,18 @@ pub mod rename;
 pub mod rotation_origin;
 pub mod selection_colors;
 pub mod selection_spacing;
+pub mod semantics;
 pub mod shape_handles;
 pub mod shapebuilder;
 pub mod snap;
 pub mod style_vars;
 pub mod synthetic;
 pub mod synthetic_ds;
+pub mod tailwind;
 pub mod target;
 pub mod templates;
 pub mod textedit;
+pub mod textfit;
 pub mod textpreview;
 pub mod tools;
 pub mod vectoredit;
@@ -1625,6 +1629,8 @@ mod cursor_tests;
 #[cfg(test)]
 mod dark_page_text_tests;
 #[cfg(test)]
+mod datafill_tests;
+#[cfg(test)]
 mod design_paste_tests;
 #[cfg(test)]
 mod dev_resources_tests;
@@ -1813,6 +1819,8 @@ mod selection_behaviour_tests;
 #[cfg(test)]
 mod selection_depth_tests;
 #[cfg(test)]
+mod semantics_tests;
+#[cfg(test)]
 mod shape_handles_tests;
 #[cfg(test)]
 mod shapebuilder_strokes_tests;
@@ -1835,6 +1843,8 @@ mod styles_behaviour_tests;
 #[cfg(test)]
 mod svg_import_tests;
 #[cfg(test)]
+mod tailwind_tests;
+#[cfg(test)]
 mod templates_tests;
 #[cfg(test)]
 mod tests;
@@ -1850,6 +1860,8 @@ mod text_motion_tests;
 mod text_style_picker_tests;
 #[cfg(test)]
 mod text_tail_tests;
+#[cfg(test)]
+mod textfit_tests;
 #[cfg(test)]
 mod theme_pages_tests;
 #[cfg(test)]
