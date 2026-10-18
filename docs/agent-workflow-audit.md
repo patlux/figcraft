@@ -1,6 +1,6 @@
 # Local agent workflow audit
 
-Date: 2026-10-18. Scope: the slim local fork on `main`, merged with upstream `e9565813ac724abf50f1089eaeee3960a8366ffd` (v0.7.0 and community batch 18), and the paired Python bridge and agent skill.
+Date: 2026-10-18. Scope: the slim local fork on `main`, merged with upstream `e9565813ac724abf50f1089eaeee3960a8366ffd` (v0.7.0 and community batch 18) and with open upstream PRs, and the paired Python bridge and agent skill.
 This audit does not claim installed synchronization or Figma parity.
 
 ## What the fork adds to upstream
@@ -21,6 +21,23 @@ Removed from the fork on 2026-10-17: automatic file polling and generator adopti
 The poller read and hashed every open file once per turn. A 211 MB document kept the main thread about 56% busy.
 See `/Users/patwoz/dev/Personal/thirdparty/figcraft/docs/file-synchronization.md` for the remaining contract.
 
+## Open upstream PRs in the fork
+
+The fork merges these open upstream PRs as they are, with real merge commits:
+#801, #287, #285, #607, #661, #659 (with #623), #320, #618, #696 (with #748) and #538.
+
+| From #593 | Status |
+|---|---|
+| `node.createTree` / MCP `create_tree`, `inspect.outline` / `outline`, `inspect.lint` / `lint_layout`, `text.measure` | Ported |
+| `edit.duplicate` returns `map`, the copy of every copied layer | Ported |
+| `ui.screenshot {after}`: wait up to 30 s before the capture | Ported |
+| `--autosave` / `FIGCRAFT_MCP_AUTOSAVE=1` | Ported. It calls the protected `file.save`: a file that another program changed stays, and the tool result carries a note. |
+| Preferences ▸ AI agents, client installer, port management, client hello | Not ported. The fork starts the control port from the LaunchAgent and installs clients through Nix. |
+
+#659 repaints pages that still have their theme colour when the theme changes. It kept one UI test that expects the old behavior.
+The fork changes that test to the new behavior. #500 (control authentication) stays separate:
+it needs a token shared by the LaunchAgent, the bridge and the CLI.
+
 ## Now in upstream
 
 - Hidden-window control requests: #332 (from this fork) and #720. The fork now uses upstream's behavior.
@@ -34,7 +51,7 @@ See `/Users/patwoz/dev/Personal/thirdparty/figcraft/docs/file-synchronization.md
 - The installed-chain test on 2026-10-18 found lost control-request wakes. After a document change in a hidden window,
   9 of 80 direct requests waited 2 s or more, up to over 25 s. The main thread was idle in its event loop.
   A second request released each stalled request within 0.02 s. A control-server regression fails before the fix.
-- Workspace after the merge of upstream `e956581`: **2,819 passed, two failed, eight ignored** (2,755 after `0a01188`).
+- Workspace after the open-PR batch: **2,905 passed, two failed, nine ignored** (2,819 after upstream `e956581`, 2,755 after `0a01188`).
 - The two failures are upstream automation-root tests on macOS:
   `file_access::tests::links_that_lead_out_of_a_root_are_outside` and `file_access::tests::outside_paths_are_refused_alike_whatever_exists_there`.
   Both expect the reason "leads nowhere" for a dangling link inside a root. On macOS the temporary folder is under `/var`, a link to `/private/var`.
@@ -44,7 +61,7 @@ See `/Users/patwoz/dev/Personal/thirdparty/figcraft/docs/file-synchronization.md
 - A new Engine regression checks that status, refresh and save stay inside automation roots. It fails when the fork's I/O bypasses the roots.
 - Workspace clippy with warnings denied, formatting, layering, assets and packaging checks pass.
 - The native smoke passes with explicit refresh while minimized and visible, and with a preserved conflict.
-  Three reviewed 2400×1600 captures are in `/tmp/figcraft-e956581-smoke-20261018`.
+  Three reviewed 2400×1600 captures are in `/tmp/figcraft-agent-batch-smoke-20261018`.
 - The local WASM target is absent. GitHub Actions run the WASM check after a push.
 
 The native example uses `NoServices` and direct Engine commands, with no control listener or user preferences.
