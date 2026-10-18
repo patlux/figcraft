@@ -39,7 +39,7 @@ No alpha blockers: the alpha gate in [`roadmap.md`](roadmap.md#alpha-gate) passe
 | 10 | Team libraries: no team-wide lists or accounts; analytics are counts | Feature | 4–8 | [components-parity](components-parity.md) |
 | 11 | Spell check | Feature | 4–8 | [target-app-parity](target-app-parity.md) |
 | 12 | Video fills; HEIC images | File format | 5–10 | [file-format-parity](file-format-parity.md) |
-| 13 | Vector tail: none left (boolean hit testing on the result landed 2026-10-11) | Feature | — | [target-app-parity](target-app-parity.md) |
+| 13 | Vector tail: outline-stroke compositing (stroke rings preserved) | Feature | — | [target-app-parity](target-app-parity.md) |
 | 14 | Variables: extended collections checked on real libraries (the tail landed 2026-10-12) | Feature | 0–1 | [components-parity](components-parity.md) |
 | 15 | Prototyping: media triggers and actions; controllers on macOS, Linux and FreeBSD (controller buttons on key/gamepad triggers, widgets in prototypes landed) | Feature | 2–5 | [prototyping-parity](prototyping-parity.md) |
 | 16 | Dev Mode: import lines inside generated layer trees; the editor extension is left to the MCP server (code connect, Dev Mode plugins and dev resources landed) | Feature | 0–1 | [dev-mode-parity](dev-mode-parity.md) |
@@ -320,7 +320,9 @@ No alpha blockers: the alpha gate in [`roadmap.md`](roadmap.md#alpha-gate) passe
   video need decoders that are C libraries (libheif, FFmpeg) or each platform's media framework.
 - **Estimate:** 5–10 h (video playback in the presenter is most of it; it can reuse the GIF clock).
 
-### 13. Vector tail: none left
+### 13. Vector tail: outline-stroke compositing
+- **Landed (2026-10-15):** Outline stroke keeps the renderer's even-odd stroke rings; regression pixels, Undo/Redo, native save/reopen and instance opacity inheritance/overrides in `outline_stroke`.
+- **Missing:** preserving filled-shape opacity, blend and effects on the composite. A follow-up must preserve component inheritance and references when deciding which node owns these properties.
 - **Landed (2026-10-12):** several Bezier handles selected with Shift-click and dragged together,
   sharp points beside curved segments rounded, a stroke cap and join per point (canvas, PNG, SVG,
   PDF, outline stroke), the Pen outside edit mode connecting to its own points and continuing a
@@ -336,7 +338,7 @@ No alpha blockers: the alpha gate in [`roadmap.md`](roadmap.md#alpha-gate) passe
   Ratio; Mixed across ellipses; bindable), the shape builder on strokes and open paths (strokes take
   part as their outlined areas), one-sided variable widths (Alt-drag a width handle; canvas, PNG,
   SVG, PDF and outline stroke).
-- **Estimate:** none left (vector QA with real files is part of gap 3).
+- **Estimate:** compositing not yet re-estimated; vector QA with real files remains part of gap 3.
 
 ### 14. Variables: extended collections on real libraries
 - **Landed:** extended collections (`library.extendCollection`: a library collection's modes and
@@ -471,6 +473,7 @@ No alpha blockers: the alpha gate in [`roadmap.md`](roadmap.md#alpha-gate) passe
 | 2026-10-16 | minor | Guarded app/document control targets, with hidden-window and bridge regressions. No activation or live synchronization claim. Estimates unchanged. |
 | 2026-10-16 | minor | Local save-conflict protection and remaining synchronization work recorded. Four before-fix Engine failures now pass; eight format tests include cross-process locking. No automatic refresh, adoption, live UI verification or installation yet. Estimates unchanged. |
 | 2026-10-17 | minor | The 2026-10-17 landings. Gap 1: a new Landed entry (community batches #727 and #728, then #745: instance identity and cached library components, overrides by key, text style precedence, grid track sizes, slot content, labels of connectors saved with their path, skip ink, paragraph options, list start numbers, vertical trim, per-point stroke joins, text on a path, image adjustments, images in the message, instance layers' size and resizing overrides, Hug where nothing is recorded; budgets from the file's size; the import report; a `.fig` copy from Save as; paste from another design app), its Missing list cut to what is still left, and the wrong "whether other apps open its files is unknown" replaced by what was checked; all on synthetic files, so the beta blocker and hours stand. Gap 2: server limits, log recovery and web join links in the evidence. Gap 4: menus, the Actions palette and the editor fixes (#733, #735, #736, #729), then Selection colors and smart-selection spacing (#753) landed, none compared side by side. Gap 5: catalog counts re-measured (2,272 entries; drafts at 95–99%; Indonesian, Czech, Turkish and Swedish listed). Gap 8: the Linux and BSD clipboard changes and Wayland window controls, not run there by the maintainers. Ranking and hours unchanged |
+| 2026-10-15 | minor | M4: Outline stroke preserves even-odd stroke holes. Pixel comparisons cover alignment, dashes, individual side weights, vector paths and stroke-only opacity; native save/reopen, Undo/Redo and instance opacity inheritance/overrides are covered by `outline_stroke`. Existing estimates unchanged; filled-shape compositing needs separate work. |
 | 2026-10-15 | minor | Gap 7: bounded canvas overscan for smoother panning. Estimates and ranking unchanged. |
 | 2026-10-14 | minor | Russian catalog (M9), reviewed and approved by VanTan: all 2,165 current entries, Русский in Preferences and regional ru tags. Russian integer plurals use one/few/many; contributor display name VanTan added. Existing estimates unchanged. |
 | 2026-10-13 | minor | Gap 1: the experimental `.fig` export writes instance sizes (resized, filling an auto layout, scaled), variables with modes and bindings, shared styles and variable-width strokes, and the import reads them back. Checked by opening written files in other software: resized and scaled instances keep their size and lay their layers out for it, variables with their modes and colour bindings resolve there (a frame set to another mode shows that mode's colours, also inside instances), colour, text, effect and grid styles are listed, and variable-width strokes that are the same on both sides of the path draw with their width; number, string and boolean bindings and bindings on effects, layout guides and gradient stops come across as the values they give but did not show as bound there (their entries now also name the layer field they set, not yet checked there), and strokes wider on one side of the path are written as filled outlines, no longer editable strokes there (the stroke itself is kept as plugin data and our own import puts it back; not yet checked there). Hours and the ranking unchanged |
