@@ -187,6 +187,36 @@ fn files_with_every_field_spelled_out_still_open() {
 }
 
 #[test]
+fn a_component_sets_old_editor_outline_is_dropped_only_without_the_marker() {
+    let mut d = Document::new("Sets");
+    let page = d.first_page().unwrap();
+    let old = d.create(page, NodeKind::ComponentSet { description: String::new() }, "Button", 0.0, 0.0, 100.0, 40.0).unwrap();
+    let custom = d.create(page, NodeKind::ComponentSet { description: String::new() }, "Chip", 0.0, 80.0, 100.0, 40.0).unwrap();
+    // As 0.6.0 wrote every set: the canvas's purple dashed outline stored as a real stroke.
+    let n = d.get_mut(old).unwrap();
+    n.strokes = vec![Paint::solid(Color::from_rgb8_const(0x97, 0x47, 0xFF))];
+    n.stroke.dashes = vec![10.0, 5.0];
+    // A stroke someone chose is design content and stays.
+    let n = d.get_mut(custom).unwrap();
+    n.strokes = vec![Paint::solid(Color::from_rgb8_const(0x11, 0x22, 0x33))];
+    n.stroke.dashes = vec![1.0, 2.0];
+    // A file this version writes carries the marker: the same stroke is a choice, not decoration.
+    let text = serde_json::to_string(&to_json(&d).unwrap()).unwrap();
+    let (current, _) = from_json(&text).unwrap();
+    assert_eq!(current.node(old).unwrap().strokes.len(), 1, "a marked file keeps a stroke someone chose");
+    assert_eq!(current.node(custom).unwrap().strokes.len(), 1);
+    // A file without the marker is from a version that stored the decoration; drop exactly that.
+    let mut legacy = to_json(&d).unwrap();
+    legacy.as_object_mut().unwrap().remove("editorOutlines");
+    let (back, _) = from_json(&serde_json::to_string(&legacy).unwrap()).unwrap();
+    let old = back.node(old).unwrap();
+    assert!(old.strokes.is_empty() && old.stroke.dashes.is_empty(), "the decoration is canvas chrome, not a document stroke");
+    let custom = back.node(custom).unwrap();
+    assert_eq!(custom.strokes.len(), 1, "a real stroke is not the decoration");
+    assert_eq!(custom.stroke.dashes, vec![1.0, 2.0]);
+}
+
+#[test]
 fn the_header_is_read_on_its_own() {
     // A newer file is refused before its document is looked at, whatever the version's size.
     assert!(matches!(from_json(r#"{"nodes": "not a map", "version": 2}"#), Err(FormatError::Newer(2))));
