@@ -1823,6 +1823,13 @@ See [file synchronization](file-synchronization.md) for preconditions, target ch
 another program changed since it was opened or last saved is never overwritten. The save is
 refused, both sides stay, and with `--autosave` the tool result carries a note instead of saving.
 
+### Duplicate map
+
+`edit.duplicate` returns `map` (original id → copy id, from the port of upstream PR #593). Since
+upstream 0.8.0 a main component's copy is an instance of it (#892): the map then names the
+instance layer that mirrors each main layer, so the copies can be edited without looking their
+ids up.
+
 ### Guarded targets
 
 `inspect_document` and `list_windows` expose a `target` (`{instance, document, path, revision,
