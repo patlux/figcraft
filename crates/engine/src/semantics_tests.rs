@@ -119,3 +119,114 @@ fn stylesheets_reset_browser_defaults_the_design_doesnt_have() {
     let button = html.split(".buy {\n").nth(1).and_then(|r| r.split('}').next()).unwrap_or_default();
     assert!(button.contains("border: none;") && button.contains("background: none;") && button.contains("font: inherit;"), "{html}");
 }
+
+const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+#[test]
+fn review_a_photo_background_keeps_its_children_readable() {
+    let mut s = Session::new();
+    let (p, title, buy, _) = page(&mut s);
+    // The page frame gets a photo fill: it has children, so it is not role="img".
+    let photo = idv(&ex(&mut s, "image.place", json!({"data": PNG, "x": 0, "y": 0})));
+    let fills = s.doc().unwrap().node(photo).unwrap().fills.clone();
+    s.doc_mut().unwrap().get_mut(p).unwrap().fills = fills;
+    ex(&mut s, "annotation.add", json!({"id": p, "label": "alt: Hero photo", "category": "accessibility"}));
+    ex(&mut s, "annotation.add", json!({"id": title, "label": "h1", "category": "accessibility"}));
+    ex(&mut s, "proto.interaction.add", json!({"id": buy, "action": {"type": "openUrl", "url": "/agendar"}}));
+    let html = code(&mut s, p, "html");
+    assert!(!html.contains("role=\"img\""), "{html}");
+    assert!(html.contains("<h1 ") && html.contains("href=\"/agendar\""), "{html}");
+}
+
+#[test]
+fn review_no_link_or_button_inside_another() {
+    let mut s = Session::new();
+    let (p, _, buy, pricing) = page(&mut s);
+    // A clickable card (pricing) containing a clickable button.
+    ex(&mut s, "node.reparent", json!({"ids": [buy], "parent": pricing}));
+    ex(&mut s, "proto.interaction.add", json!({"id": pricing, "action": {"type": "openUrl", "url": "/planos"}}));
+    ex(&mut s, "proto.interaction.add", json!({"id": buy, "action": {"type": "back"}}));
+    let html = code(&mut s, p, "html");
+    assert_eq!(html.matches("<a ").count() + html.matches("<button ").count(), 1, "{html}");
+    assert!(html.contains("<a class=\"pricing-section\" href=\"/planos\">") && !html.contains("<button"), "{html}");
+}
+
+#[test]
+fn review_default_names_empty_alt_and_p() {
+    let mut s = Session::new();
+    let (p, title, _, pricing) = page(&mut s);
+    let img = idv(&ex(&mut s, "image.place", json!({"data": PNG, "x": 0, "y": 0, "parent": pricing})));
+    ex(&mut s, "node.set", json!({"id": img, "props": {"name": "Rectangle 12"}}));
+    let html = code(&mut s, p, "html");
+    assert!(!html.contains("Rectangle 12") && !html.contains("role=\"img\""), "a default name isn't alt text: {html}");
+    ex(&mut s, "annotation.add", json!({"id": img, "label": "alt:", "category": "accessibility"}));
+    let html = code(&mut s, p, "html");
+    assert!(html.contains("aria-hidden=\"true\"") && !html.contains("aria-label=\"\""), "empty alt is decorative: {html}");
+    ex(&mut s, "annotation.add", json!({"id": title, "label": "h2", "category": "accessibility"}));
+    ex(&mut s, "annotation.add", json!({"id": title, "label": "p", "category": "accessibility"}));
+    assert!(code(&mut s, p, "html").contains("<p class=\"title\">"), "the last instruction wins and p is accepted");
+}
+
+#[test]
+fn review_controls_keep_their_role_and_stay_visible() {
+    let mut s = Session::new();
+    let (p, _, buy, _) = page(&mut s);
+    // An image-filled, clickable leaf: a link named by its image, not role="img".
+    let img = idv(&ex(&mut s, "image.place", json!({"data": PNG, "x": 0, "y": 0, "parent": p})));
+    ex(&mut s, "node.set", json!({"id": img, "props": {"name": "Company logo"}}));
+    ex(&mut s, "proto.interaction.add", json!({"id": img, "action": {"type": "openUrl", "url": "/"}}));
+    // A decorative button is still exposed: aria-hidden on a focusable control is invalid.
+    ex(&mut s, "proto.interaction.add", json!({"id": buy, "action": {"type": "back"}}));
+    ex(&mut s, "annotation.add", json!({"id": buy, "label": "decorative", "category": "accessibility"}));
+    let html = code(&mut s, p, "html");
+    assert!(html.contains("href=\"/\" aria-label=\"Company logo\"") && !html.contains("role=\"img\""), "{html}");
+    assert!(html.contains("<button class=\"buy\" type=\"button\">") && !html.contains("aria-hidden"), "{html}");
+}
+
+#[test]
+fn review_links_keep_their_box_and_paragraph_frames_hold_spans() {
+    let mut s = Session::new();
+    let card = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 0, "width": 300, "height": 200, "name": "Card"})));
+    ex(&mut s, "text.create", json!({"text": "Ver", "x": 0, "y": 0, "parent": card, "props": {"name": "Label"}}));
+    ex(&mut s, "proto.interaction.add", json!({"id": card, "action": {"type": "openUrl", "url": "/card"}}));
+    let html = code(&mut s, card, "html");
+    let rule = html.split(".card {\n").nth(1).and_then(|r| r.split('}').next()).unwrap_or_default().to_string();
+    assert!(rule.contains("display: block;") && rule.contains("width: 300px;"), "a link frame keeps its size: {html}");
+    // A frame annotated `p` holds phrasing content only.
+    ex(&mut s, "proto.interaction.remove", json!({"id": card, "index": 0}));
+    ex(&mut s, "annotation.add", json!({"id": card, "label": "p", "category": "accessibility"}));
+    let html = code(&mut s, card, "html");
+    assert!(html.contains("<p class=\"card\">") && html.contains("<span class=\"label\">Ver</span>"), "{html}");
+}
+
+#[test]
+fn review_same_named_destinations_get_distinct_anchors() {
+    let mut s = Session::new();
+    let p = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 0, "width": 800, "height": 900, "name": "Page"})));
+    let a = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 0, "width": 800, "height": 100, "parent": p, "name": "Pricing"})));
+    let b = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 200, "width": 800, "height": 100, "parent": p, "name": "Pricing!"})));
+    for (i, dest) in [a, b].iter().enumerate() {
+        let link = idv(&ex(
+            &mut s,
+            "frame.create",
+            json!({"x": 0, "y": 400 + 60 * i, "width": 100, "height": 40, "parent": p, "name": format!("Link {i}")}),
+        ));
+        ex(&mut s, "proto.interaction.add", json!({"id": link, "action": {"type": "scrollTo", "dest": dest}}));
+    }
+    let html = code(&mut s, p, "html");
+    assert!(html.contains("id=\"pricing\"") && html.contains("id=\"pricing-2\""), "{html}");
+    assert!(html.contains("href=\"#pricing\"") && html.contains("href=\"#pricing-2\""), "{html}");
+}
+
+#[test]
+fn review_component_instances_keep_their_link() {
+    let mut s = Session::new();
+    let f = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 0, "width": 160, "height": 44, "name": "Button"})));
+    ex(&mut s, "text.create", json!({"text": "Go", "x": 0, "y": 0, "parent": f, "props": {"name": "Label"}}));
+    let comp = idv(&ex(&mut s, "component.create", json!({"ids": [f]})));
+    let p = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 300, "width": 600, "height": 200, "name": "Hero"})));
+    let inst = idv(&ex(&mut s, "instance.create", json!({"component": comp, "x": 0, "y": 0, "parent": p})));
+    ex(&mut s, "proto.interaction.add", json!({"id": inst, "action": {"type": "openUrl", "url": "https://example.com/book"}}));
+    let react = code(&mut s, p, "react");
+    assert!(react.contains("href={\"https://example.com/book\"}") && react.contains("<Button"), "the call sits in a link: {react}");
+}

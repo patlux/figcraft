@@ -367,13 +367,13 @@ position children keep their place).
 the largest font size, down to `minSize` (default 60% of the current), at which it stays within `maxLines` lines
 and its box's height. Every style run scales by the same factor. A one-word last line (an orphan) is avoided by
 shrinking up to 8% more, else by keeping the last two words together with a no-break space. Text never grows.
-Returns `{fitted: [{id, fontSize, lines, fits, orphan}]}`. Use case: a carousel slide "Lighthouse 100. Abre em
-menos de 1s." at 96px broke into three lines with "1s." alone; with `fit: {maxLines: 3}` it is two balanced lines.
+Returns `{fitted: [{id, fontSize, lines, fits, orphan}]}`. Use case: a carousel slide "Lighthouse 100. Loads in under
+1s." at 96px broke into three lines with "1s." alone; with `fit: {maxLines: 3}` it is two balanced lines.
 
 ```json
 {"command": "data.fill", "params": {"id": 80, "dir": "out/carousel", "scale": 1, "rows": [
-  {"name": "01-capa", "Headline": "Site e WhatsApp com IA em 7 dias", "Badge": {"visible": true}},
-  {"name": "02-prova", "Headline": "Lighthouse 100, abre em menos de 1s", "Badge": {"visible": false}}
+  {"name": "01-cover", "Headline": "Your website and AI chat assistant in 7 days", "Badge": {"visible": true}},
+  {"name": "02-proof", "Headline": "Lighthouse 100, loads in under a second", "Badge": {"visible": false}}
 ]}}
 ```
 
@@ -1329,27 +1329,33 @@ permissions: without it nothing is downloaded); `plugin.directory.publish {path 
   fixed height a minimum, per-side strokes become `border-b` and the like, and instances are
   inlined with their overrides (component code is `language: react`), except instances whose component
   is connected to code (`codeConnect.set`/`codeConnect.import`, React): those are their snippet, e.g.
-  `<Button variant="outline">{"Ver exemplos"}</Button>`, with each import once at the top. A design
+  `<Button variant="outline">{"See examples"}</Button>`, with each import once at the top. A design
   system mapped to shadcn/ui this way exports pages that use the project's own components. Bound variables become theme
   utilities (`bg-accent`, `rounded-card`, `text-muted`) that `variable.export {format: "tailwind"}`
   declares: `@import "tailwindcss";` and an `@theme` block named by namespace (`--color-*`,
   `--radius-*`, `--text-*`, `--spacing-*`, `--font-*`; a number's namespace and unit come from what
   layers bind it to), other modes on `[data-<collection>="<mode>"]`. With `mobile: <frame id>` (the
   same layer names, mobile layout) the code is mobile first: the mobile frame's classes, the
-  desktop frame's that differ behind `lg:`, and layers only on desktop `hidden lg:flex`.
+  desktop frame's that differ behind `lg:`, and layers only on desktop `hidden` plus `lg:flex`
+  (auto layout frames) or `lg:block` (other layers).
 - **Semantic web code:** HTML, React and Leptos code (`inspect.code`) writes each layer as the
   element it is on a page, from what the file already says:
   - A click interaction that opens a URL makes the layer a link: `<a href="https://…">`. One that
     navigates or scrolls to a frame links to that frame's anchor (`href="#pricing-section"`, from the
-    frame name), and that frame's code carries the matching `id="pricing-section"`. Any other click action makes it `<button type="button">`, and plain text inside a
-    button or heading is a `<span>`.
+    frame name), and that frame's code carries the matching `id="pricing-section"`. Any other click
+    action makes it `<button type="button">`, and plain text inside a button or heading is a
+    `<span>`. A link or button inside another link or button stays a plain element, since HTML
+    doesn't allow nested interactive content.
   - Dev Mode annotations in the **Accessibility** category, one instruction per line: an element
-    (`h1`…`h6`, `nav`, `header`, `footer`, `main`, `section`, `article`, `aside`, `ul`, `ol`, `li`,
-    `button`, `a`, `label`, `span`), `heading 2` or `heading level 2`, `alt: …`, `label: …`
-    (`aria-label`), `href: …` and `decorative` (`aria-hidden="true"`). Annotations in other
-    categories don't change the code.
-  - A layer filled with an image is `role="img"` with `aria-label` from its `alt:` annotation, else
-    its layer name, unless it is marked `decorative`.
+    (`h1`…`h6`, `p`, `nav`, `header`, `footer`, `main`, `section`, `article`, `aside`, `ul`, `ol`,
+    `li`, `button`, `a`, `label`, `span`), `heading 2` or `heading level 2`, `alt: …` (an empty
+    `alt:` marks it decorative), `label: …` (`aria-label`), `href: …` and `decorative`
+    (`aria-hidden="true"`). The last instruction of a kind wins. Annotations in other categories
+    don't change the code.
+  - A layer without children that is filled with an image is `role="img"` with `aria-label` from
+    its `alt:` annotation, else its layer name, unless it is marked `decorative` or its name is one
+    the app gave it ("Rectangle 12", "Image"). A frame with an image fill and children is not an
+    image: `role="img"` would hide its heading and buttons from screen readers.
 
   The HTML and React stylesheets reset the browser defaults the design doesn't have: every
   element is `box-sizing: border-box` (widths include padding and strokes, as on the canvas),
@@ -1361,14 +1367,15 @@ permissions: without it nothing is downloaded); `plugin.directory.publish {path 
   Rust string literals).
 
   Use cases:
-  - *Landing page CTA.* The "Agendar" button has a click → Open URL `https://wa.me/55…`
-    interaction for the prototype. Its code is `<a className="cta" href={"https://wa.me/55…"}>`, a
-    real link that crawlers, keyboards and screen readers follow, with no hand edit.
+  - *Landing page CTA.* The "Book a call" button has a click → Open URL `https://example.com/book`
+    interaction for the prototype. Its code is `<a className="cta" href={"https://example.com/book"}>`,
+    a real link that crawlers, keyboards and screen readers follow, with no hand edit.
   - *Headings for SEO and screen readers.* An Accessibility annotation `heading level 1` on the hero
     title and `h2` on each section title give `<h1>`/`<h2>` in that order, which is what search
     engines and Lighthouse's heading checks read.
-  - *Images with text.* A photo layer named "Fachada da clínica" gets that as its accessible name;
-    `alt: Recepção da clínica` overrides it and `decorative` hides a background texture.
+  - *Images with text.* A photo layer named "Clinic front desk" gets that as its accessible name;
+    `alt: Reception area of the clinic` overrides it, and `decorative` (or an empty `alt:`) hides a
+    background texture.
 
 - **Component code:** `inspect.code {id, language: react|leptos|swiftui|compose}` on a component,
   a component set or a variant writes the component as a reusable unit: React (TSX) with a props
