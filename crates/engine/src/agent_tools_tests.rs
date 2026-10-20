@@ -96,7 +96,7 @@ fn duplicate_of_a_main_component_maps_to_its_instance_layers() {
     let mut s = Session::new();
     let r = ex(&mut s, "node.createTree", json!({"tree": card_tree()}));
     let label = id(&r["ids"]["Card/Button/Label"]);
-    let comp = id(&ex(&mut s, "component.create", json!({"ids": [id(&r["id"])]})));
+    let comp = id(&ex(&mut s, "component.create", json!({"ids": [id(&r["id"])]}))["id"]);
     let d = ex(&mut s, "edit.duplicate", json!({"ids": [comp]}));
     let map = d["map"].as_object().unwrap();
     let copy = id(&map[&comp.to_string()]);
