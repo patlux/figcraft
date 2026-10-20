@@ -90,6 +90,29 @@ fn duplicate_returns_which_copy_each_layer_became() {
 }
 
 #[test]
+fn duplicate_of_a_main_component_maps_to_its_instance_layers() {
+    // Upstream #892: a main component's copy is an instance of it. The map (from #593) then names
+    // the instance layer that mirrors each main layer.
+    let mut s = Session::new();
+    let r = ex(&mut s, "node.createTree", json!({"tree": card_tree()}));
+    let label = id(&r["ids"]["Card/Button/Label"]);
+    let comp = id(&ex(&mut s, "component.create", json!({"ids": [id(&r["id"])]})));
+    let d = ex(&mut s, "edit.duplicate", json!({"ids": [comp]}));
+    let map = d["map"].as_object().unwrap();
+    let copy = id(&map[&comp.to_string()]);
+    assert_eq!(d["ids"], json!([copy]));
+    let doc = s.doc().unwrap();
+    assert!(
+        matches!(doc.node(copy).unwrap().kind, figcraft_doc::NodeKind::Instance { component, .. } if component == comp),
+        "an instance of the main"
+    );
+    assert_eq!(map.len(), doc.subtree(comp).len(), "every main layer: {map:?}");
+    let label_copy = id(&map[&label.to_string()]);
+    assert_eq!(doc.node(label_copy).unwrap().source, Some(label));
+    assert!(doc.ancestors(label_copy).contains(&copy), "the mirrored label sits in the instance");
+}
+
+#[test]
 fn outline_lists_one_line_per_layer() {
     let mut s = Session::new();
     let r = ex(&mut s, "node.createTree", json!({"tree": card_tree()}));

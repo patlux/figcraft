@@ -285,9 +285,50 @@ pub fn create_instance_at(doc: &mut Document, component: NodeId, parent: NodeId,
     root.dev_resources.clear();
     // The main's interactions play on its instances in prototypes; the instance's own start empty.
     root.interactions.clear();
+    // So do the variable modes the main sets (see `Document::inherited_modes`).
+    root.var_modes.clear();
     doc.insert(root, parent, index)?;
     sync_instance(doc, id);
     Ok(id)
+}
+
+/// Copy `id` within its own file under `parent` (at `index`), keeping its local transform. A file
+/// has one main per component, so a main component's copy is an instance of it; a variant copied
+/// into its set stays a new variant, and every other layer is deep-copied.
+pub fn copy_in_file(doc: &mut Document, id: NodeId, parent: NodeId, index: Option<usize>) -> Result<NodeId, DocError> {
+    let n = doc.get(id)?;
+    let in_set = doc.node(parent).is_some_and(|p| matches!(p.kind, NodeKind::ComponentSet { .. }));
+    if !matches!(n.kind, NodeKind::Component { .. }) || in_set {
+        return doc.duplicate_into(id, parent, index);
+    }
+    let transform = n.transform;
+    let instance = create_instance_at(doc, id, parent, 0.0, 0.0, index)?;
+    doc.get_mut(instance)?.transform = transform;
+    Ok(instance)
+}
+
+/// [`copy_in_file`], also returning which layer each layer of the original became (original id →
+/// copy id, the root included), for `edit.duplicate`'s `map` (local fork, from upstream PR #593).
+/// An instance copy of a main component maps each main layer to the instance layer that mirrors it.
+pub fn copy_in_file_mapped(
+    doc: &mut Document,
+    id: NodeId,
+    parent: NodeId,
+    index: Option<usize>,
+) -> Result<(NodeId, BTreeMap<NodeId, NodeId>), DocError> {
+    let in_set = doc.node(parent).is_some_and(|p| matches!(p.kind, NodeKind::ComponentSet { .. }));
+    if !matches!(doc.get(id)?.kind, NodeKind::Component { .. }) || in_set {
+        return doc.duplicate_into_mapped(id, parent, index);
+    }
+    let originals: BTreeSet<NodeId> = doc.subtree(id).into_iter().collect();
+    let instance = copy_in_file(doc, id, parent, index)?;
+    let mut map = BTreeMap::from([(id, instance)]);
+    for layer in doc.subtree(instance) {
+        if let Some(main) = doc.node(layer).and_then(|n| n.source).filter(|s| originals.contains(s) && *s != id) {
+            map.entry(main).or_insert(layer);
+        }
+    }
+    Ok((instance, map))
 }
 
 /// Which part of the carried overrides to apply.

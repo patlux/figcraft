@@ -211,6 +211,7 @@ fn pending_file_drops_defer_explicit_refresh_in_every_window() {
                 params: json!({}),
                 command: "file.import",
                 target: Some(crate::pending_open::ImportTarget { uid: ds.uid, page: ds.page, name: ds.doc.name.clone() }),
+                read: None,
             });
         });
         assert!(refresh(&mut app).unwrap_err().contains("UI editing"), "pending drop in window {queued_window} blocks replacement");
