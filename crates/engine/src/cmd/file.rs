@@ -551,7 +551,8 @@ fn load_with(
                 return Ok((figcraft_format::Loaded { issues: warnings, ..doc.into() }, true));
             }
             let mut loaded = figcraft_format::load_bytes_with_versions(bytes).map_err(|e| EngineError::Other(e.to_string()))?;
-            if loaded.doc.name.is_empty() {
+            // Older files saved an untouched default title even after the user chose a filename.
+            if loaded.doc.name.is_empty() || loaded.doc.name == "Untitled" {
                 loaded.doc.name = file_stem(name_hint);
             }
             Ok((loaded, false))
@@ -874,9 +875,15 @@ fn save_to(s: &mut Session, path: String) -> Result<Value> {
     let ds = s.docs.get_mut(i).ok_or(EngineError::NoDocument)?;
     let target = crate::file_access::tracked_destination(&path).map_err(|e| EngineError::Other(format!("{path}: {e}")))?;
     let expected = ds.file_baseline.as_ref().filter(|b| ds.path.as_deref() == Some(path.as_str()) || b.path == target);
-    let bytes = file_bytes(ds)?;
+    let mut snapshot = FileSnapshot::of(ds);
+    let follows_path = ds.path.as_deref().map_or(ds.doc.name == "Untitled", |old| ds.doc.name == file_stem(old));
+    if follows_path && ds.path.as_deref() != Some(path.as_str()) {
+        Arc::make_mut(&mut snapshot.doc).name = file_stem(&path);
+    }
+    let bytes = snapshot.encode()?;
     let baseline = crate::file_access::write_tracked(&path, expected, &bytes).map_err(|e| EngineError::Other(format!("{path}: {e}")))?;
     ds.file_baseline = Some(baseline);
+    ds.doc = snapshot.doc;
     ds.path = Some(path.clone());
     ds.mark_saved();
     ds.revision += 1;

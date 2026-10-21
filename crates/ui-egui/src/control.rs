@@ -323,6 +323,7 @@ pub fn handle(app: &mut FigApp, ctx: &Context, method: &str, p: &Value) -> Resul
                 }
                 result
             });
+            app.clear_comment_draft_after_tool_set(cmd, r.is_ok());
             // Programmatic calls never open dialogs.
             app.session.ui_requests.retain(|u| !u.kind.starts_with("dialog."));
             app.handle_ui_requests();
