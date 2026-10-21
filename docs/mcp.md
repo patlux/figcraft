@@ -1809,7 +1809,8 @@ It checks exact disk bytes and compares the native design with the live document
 Use `savedAndCurrent: true` as point-in-time evidence after a save.
 `dirty: false` alone does not prove disk agreement.
 Design hashes include images but exclude the current page, thumbnail and history. In the app, the two
-theme-given page colours count as one, because a theme change repaints them without an edit.
+theme-given page colours count as one, because a theme change repaints them without an edit. A title of
+"Untitled" counts as the file name, because the app names such a file after it when it opens it.
 A history-only edit keeps `savedAndCurrent` false until a successful save.
 The tool does not refresh, merge or overwrite anything.
 `refresh_file {target}` loads a changed external native file into the same clean, noninteractive document.

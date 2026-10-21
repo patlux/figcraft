@@ -124,3 +124,27 @@ fn a_theme_repaint_of_default_page_colours_keeps_the_file_current() {
     assert_eq!(status["designMatchesDisk"], false);
     assert_eq!(status["savedAndCurrent"], false);
 }
+
+#[test]
+fn an_untitled_file_opened_under_its_file_name_is_current() {
+    // Upstream 0.8.0 (#935) names a document the app loads from a file titled "Untitled" after the
+    // file. The file on disk keeps its title until the next save, so status must not see a change.
+    let f = Fixture::new("untitled");
+    let mut doc = figcraft_doc::Document::default();
+    doc.name = "Untitled".into();
+    std::fs::write(f.path(), figcraft_format::save_bytes(&doc, None).unwrap()).unwrap();
+    let mut s = Session::empty();
+    s.execute("file.open", &json!({"path": f.path()})).unwrap();
+    assert_eq!(s.doc().unwrap().name, "design", "the title follows the file name");
+    let status = s.execute("file.status", &json!({})).unwrap();
+    assert_eq!(status["dirty"], false);
+    assert_eq!(status["designMatchesDisk"], true, "a title the app derived is not a design change");
+    assert_eq!(status["savedAndCurrent"], true);
+    // A title another program wrote into the file is still a difference.
+    let mut other = Session::empty();
+    other.execute("file.open", &json!({"path": f.path()})).unwrap();
+    other.execute("file.rename", &json!({"name": "Renamed elsewhere"})).unwrap();
+    other.execute("file.save", &json!({})).unwrap();
+    let status = s.execute("file.status", &json!({})).unwrap();
+    assert_eq!(status["designMatchesDisk"], false);
+}

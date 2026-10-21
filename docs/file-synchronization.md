@@ -31,6 +31,8 @@ These fingerprints exclude the selected page, thumbnail and version history.
 In the app, a page on a theme-given colour follows the interface theme without an edit (upstream PR #659).
 The file keeps its saved colour, so the app counts both theme-given page colours as one in the fingerprints.
 Headless sessions have no theme and compare page colours exactly.
+Since upstream 0.8.0 the app names a document loaded from a file titled "Untitled" after the file.
+The file keeps its title until the next save, so both fingerprints use the file name for such a title.
 `savedAndCurrent` also requires a clean live document and the saved-byte baseline.
 Thus design equality alone does not claim that version-history edits reached disk.
 The response is a point-in-time observation. It does not reserve the file or guarantee future agreement.

@@ -8,7 +8,7 @@ pub fn specs() -> Vec<crate::cmd::CommandSpec> {
     vec![spec!(
         "file.status",
         "Inspect file synchronization",
-        "{} → {target, state, dirty, baseline, disk?, liveDesignSha256?, diskDesignSha256?, designMatchesDisk, savedAndCurrent, error?}. Reads exact disk bytes now, without refreshing or saving. Design hashes exclude the current page, thumbnail and history; with an interface theme, the two theme-given page colours count as one. savedAndCurrent also requires a clean live document and the saved-byte baseline. An observation, not a lock or future guarantee.",
+        "{} → {target, state, dirty, baseline, disk?, liveDesignSha256?, diskDesignSha256?, designMatchesDisk, savedAndCurrent, error?}. Reads exact disk bytes now, without refreshing or saving. Design hashes exclude the current page, thumbnail and history; with an interface theme, the two theme-given page colours count as one; a title of \"Untitled\" counts as the file name, as the loader derives it. savedAndCurrent also requires a clean live document and the saved-byte baseline. An observation, not a lock or future guarantee.",
         false,
         |s, _| status(s)
     )]
@@ -53,6 +53,15 @@ fn theme_neutral(doc: &mut figcraft_doc::Document) {
         {
             *background = figcraft_color::Color::DEFAULT_PAGE;
         }
+    }
+}
+
+/// The app names a document loaded from a file titled "Untitled" (or untitled) after the file
+/// (upstream 0.8.0, #935, in `cmd::file::load_with`); the file keeps its title until the next save.
+/// Give both sides that derived title, so opening such a file is no design difference.
+fn title_neutral(doc: &mut figcraft_doc::Document, path: &str) {
+    if doc.name.is_empty() || doc.name == "Untitled" {
+        doc.name = std::path::Path::new(path).file_stem().and_then(|e| e.to_str()).unwrap_or("Untitled").to_string();
     }
 }
 
@@ -107,6 +116,8 @@ pub fn status(s: &Session) -> Result<Value> {
         theme_neutral(&mut live);
         theme_neutral(&mut disk_doc);
     }
+    title_neutral(&mut live, path);
+    title_neutral(&mut disk_doc, path);
     let live_hash = hash_owned(live)?;
     let disk_hash = hash_owned(disk_doc)?;
     let current = ds.file_baseline.as_ref() == Some(&disk);
