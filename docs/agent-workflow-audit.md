@@ -1,6 +1,6 @@
 # Local agent workflow audit
 
-Date: 2026-10-21. Scope: the slim local fork, merged with upstream `d9c924c0` (release 0.8.0, community batch 20 and later) and with open upstream PRs, and the paired Python bridge and agent skill.
+Date: 2026-10-21. Scope: the slim local fork, merged with upstream `35da7b7` (release 0.8.0 and later) and with open upstream PRs, and the paired Python bridge and agent skill.
 The fork's manifest, sync script and runbook are in `/Users/patwoz/dev/Personal/infra/nix/hosts/darwin/mbpromax/figcraft/` (`fork-manifest.toml`, `sync-upstream.sh`, `SYNC.md`).
 This audit does not claim installed synchronization or Figma parity.
 
@@ -55,7 +55,7 @@ it needs a token shared by the LaunchAgent, the bridge and the CLI.
 - The installed-chain test on 2026-10-18 found lost control-request wakes. After a document change in a hidden window,
   9 of 80 direct requests waited 2 s or more, up to over 25 s. The main thread was idle in its event loop.
   A second request released each stalled request within 0.02 s. A control-server regression fails before the fix.
-- Workspace after upstream 0.8.0 (`d9c924c`) and the latest #696: **3,053 passed, zero failed, nine ignored**, also with `--test-threads=1` (2,919 after `a0d1162` and #819, 2,914 with two macOS failures after `d8ff144`, 2,905 after the open-PR batch, 2,819 after upstream `e956581`, 2,755 after `0a01188`).
+- Workspace after upstream `35da7b7`: **3,082 passed, zero failed, nine ignored** with `--test-threads=1` (3,053 after 0.8.0 and the latest #696, 2,919 after `a0d1162` and #819, 2,914 with two macOS failures after `d8ff144`, 2,905 after the open-PR batch, 2,819 after upstream `e956581`, 2,755 after `0a01188`).
 - Until #819, two upstream automation-root tests failed on macOS only:
   `file_access::tests::links_that_lead_out_of_a_root_are_outside` and `file_access::tests::outside_paths_are_refused_alike_whatever_exists_there`.
   Both expect the reason "leads nowhere" for a dangling link inside a root. On macOS the temporary folder is under `/var`, a link to `/private/var`,
@@ -64,7 +64,8 @@ it needs a token shared by the LaunchAgent, the bridge and the CLI.
 - A new Engine regression checks that status, refresh and save stay inside automation roots. It fails when the fork's I/O bypasses the roots.
 - Workspace clippy with warnings denied, formatting, layering, assets and packaging checks pass.
 - The native smoke passes with explicit refresh while minimized and visible, and with a preserved conflict.
-  Three reviewed 2400×1600 captures are in `/tmp/figcraft-080-smoke-20261021` (before: `/tmp/figcraft-3151a01-smoke-20261019`).
+  Three reviewed 2400×1600 captures are in `/tmp/figcraft-35da7b7-smoke-b-20261021` (before: `/tmp/figcraft-080-smoke-20261021`).
+  An earlier run on the same commit showed the Rectangle tool active: a key press reached the smoke window. The repeat shows the Move tool.
 - The local WASM target is absent. GitHub Actions run the WASM check after a push.
 
 The native example uses `NoServices` and direct Engine commands, with no control listener or user preferences.
@@ -80,6 +81,8 @@ inner shadows honor their blend mode on shapes, frames and groups; SVG vector an
 still use Normal. Import/export: tracked `.figcraft` saves refuse external changes (byte baselines,
 participating-writer locks; explicit refresh, no file watching). Ranked estimates are unchanged by
 the fork.
+
+- **2026-10-21** · Upstream 35da7b7 and the derived title in file status (M0.9, local fork): the fork now includes upstream `35da7b7`: the shared craft-window crate for Linux window frames (#971), document titles that follow the file name (#935), variant discoverability (#903/#908), component set names (#909), comment drafts cleared on a tool switch (#939), dropped documents that open (#916/#928), a scrolling pages list (#933) and parser fixes. Two files conflicted: the save keeps the protected write and encodes upstream's renamed snapshot; the control dispatcher keeps the refresh guard and target window and clears the comment draft. #935 also names a document loaded from a file titled "Untitled" after the file, without an edit. File status then reported a difference right after such a file was opened. Both fingerprints now use the file name for an empty or "Untitled" title; the new regression fails before the fix. #285 and #320 were rebased onto 0.8.0; their new heads change only upstream-owned progress docs, so the fork keeps the merged heads. Workspace: 3,082 passed, zero failed, nine ignored. The native smoke passes. Estimates unchanged.
 
 - **2026-10-21** · Upstream 0.8.0 (M0.9, local fork): the fork now includes upstream `d9c924c`, release 0.8.0: fonts installed while the app runs (#821), the CLI confined to automation roots (#839), #819 merged upstream, a duplicated main component becomes an instance (#892), measuring hides handles (#894), plugin data in `node.get` (#879), separate padding controls (#832), live sessions above 64 MiB (#857), new catalogs and many fixes. Eight files conflicted. The CLI keeps upstream's root handling and adds `--autosave`. `edit.duplicate` keeps its map through `components::copy_in_file_mapped`, which maps a main component's layers to the instance layers that mirror them; the new regression fails without that mapping. Code generation takes upstream's `css_borders`, as #696 now does itself. The font scan keeps the Adobe Fonts file check (#661) next to upstream's size cap; the canvas hides handles while measuring and in Dev Mode; number fields keep drag to scrub (#285). The latest head of #696 adds four review commits (Tailwind, `data.fill`, `text.fit` and the semantic code of #748). Workspace: 3,053 passed, zero failed, nine ignored. The native smoke passes. Estimates unchanged.
 
