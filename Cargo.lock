@@ -743,6 +743,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "chrono"
+version = "0.4.45"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "clipboard-win"
 version = "5.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1456,7 +1465,7 @@ checksum = "b97b65636e5b9ef369943878ac74335ba1c55c1cb6adbf1e2c293c624248d693"
 
 [[package]]
 name = "figcraft"
-version = "0.8.0"
+version = "0.10.0"
 dependencies = [
  "arboard",
  "craft-window",
@@ -1483,7 +1492,7 @@ dependencies = [
 
 [[package]]
 name = "figcraft-cli"
-version = "0.8.0"
+version = "0.10.0"
 dependencies = [
  "figcraft-doc",
  "figcraft-engine",
@@ -1497,9 +1506,10 @@ dependencies = [
 
 [[package]]
 name = "figcraft-collab"
-version = "0.8.0"
+version = "0.10.0"
 dependencies = [
  "base64 0.22.1",
+ "chrono",
  "figcraft-color",
  "figcraft-doc",
  "figcraft-geom",
@@ -1512,7 +1522,7 @@ dependencies = [
 
 [[package]]
 name = "figcraft-collab-net"
-version = "0.8.0"
+version = "0.10.0"
 dependencies = [
  "base64 0.22.1",
  "figcraft-collab",
@@ -1535,7 +1545,7 @@ dependencies = [
 
 [[package]]
 name = "figcraft-color"
-version = "0.8.0"
+version = "0.10.0"
 dependencies = [
  "kurbo",
  "serde",
@@ -1544,7 +1554,7 @@ dependencies = [
 
 [[package]]
 name = "figcraft-doc"
-version = "0.8.0"
+version = "0.10.0"
 dependencies = [
  "figcraft-color",
  "figcraft-geom",
@@ -1556,7 +1566,7 @@ dependencies = [
 
 [[package]]
 name = "figcraft-engine"
-version = "0.8.0"
+version = "0.10.0"
 dependencies = [
  "base64 0.22.1",
  "craft-docpath",
@@ -1584,7 +1594,7 @@ dependencies = [
 
 [[package]]
 name = "figcraft-format"
-version = "0.8.0"
+version = "0.10.0"
 dependencies = [
  "figcraft-doc",
  "figcraft-pathops",
@@ -1599,7 +1609,7 @@ dependencies = [
 
 [[package]]
 name = "figcraft-geom"
-version = "0.8.0"
+version = "0.10.0"
 dependencies = [
  "kurbo",
  "serde",
@@ -1607,7 +1617,7 @@ dependencies = [
 
 [[package]]
 name = "figcraft-layout"
-version = "0.8.0"
+version = "0.10.0"
 dependencies = [
  "figcraft-doc",
  "figcraft-geom",
@@ -1615,7 +1625,7 @@ dependencies = [
 
 [[package]]
 name = "figcraft-mcp"
-version = "0.8.0"
+version = "0.10.0"
 dependencies = [
  "base64 0.22.1",
  "figcraft-collab-net",
@@ -1631,7 +1641,7 @@ dependencies = [
 
 [[package]]
 name = "figcraft-pathops"
-version = "0.8.0"
+version = "0.10.0"
 dependencies = [
  "figcraft-doc",
  "figcraft-geom",
@@ -1640,7 +1650,7 @@ dependencies = [
 
 [[package]]
 name = "figcraft-pdf"
-version = "0.8.0"
+version = "0.10.0"
 dependencies = [
  "figcraft-color",
  "figcraft-doc",
@@ -1657,7 +1667,7 @@ dependencies = [
 
 [[package]]
 name = "figcraft-plugin"
-version = "0.8.0"
+version = "0.10.0"
 dependencies = [
  "figcraft-color",
  "serde",
@@ -1670,7 +1680,7 @@ dependencies = [
 
 [[package]]
 name = "figcraft-render"
-version = "0.8.0"
+version = "0.10.0"
 dependencies = [
  "crc32fast",
  "figcraft-color",
@@ -1688,7 +1698,7 @@ dependencies = [
 
 [[package]]
 name = "figcraft-server"
-version = "0.8.0"
+version = "0.10.0"
 dependencies = [
  "crc32fast",
  "ctrlc",
@@ -1712,7 +1722,7 @@ dependencies = [
 
 [[package]]
 name = "figcraft-svg"
-version = "0.8.0"
+version = "0.10.0"
 dependencies = [
  "base64 0.22.1",
  "figcraft-color",
@@ -1728,7 +1738,7 @@ dependencies = [
 
 [[package]]
 name = "figcraft-text"
-version = "0.8.0"
+version = "0.10.0"
 dependencies = [
  "figcraft-doc",
  "figcraft-geom",
@@ -1742,9 +1752,10 @@ dependencies = [
 
 [[package]]
 name = "figcraft-ui-egui"
-version = "0.8.0"
+version = "0.10.0"
 dependencies = [
  "base64 0.22.1",
+ "chrono",
  "egui",
  "egui_extras",
  "figcraft-color",
@@ -1767,7 +1778,7 @@ dependencies = [
 
 [[package]]
 name = "figcraft-web"
-version = "0.8.0"
+version = "0.10.0"
 dependencies = [
  "eframe",
  "egui",
@@ -5872,7 +5883,7 @@ checksum = "9440ea3e5aeabb0ac63af70daf835274065238cdd0cec83418f417eae38bacee"
 
 [[package]]
 name = "xtask"
-version = "0.8.0"
+version = "0.10.0"
 dependencies = [
  "figcraft-engine",
  "serde_json",

@@ -1,6 +1,6 @@
 # Local agent workflow audit
 
-Date: 2026-10-21. Scope: the slim local fork, merged with upstream `35da7b7` (release 0.8.0 and later) and with open upstream PRs, and the paired Python bridge and agent skill.
+Date: 2026-10-23. Scope: the slim local fork, merged with upstream `92b8352` (release 0.10.0 and later) and with carried upstream PRs, and the paired Python bridge and agent skill.
 The fork's manifest, sync script and runbook are in `/Users/patwoz/dev/Personal/infra/nix/hosts/darwin/mbpromax/figcraft/` (`fork-manifest.toml`, `sync-upstream.sh`, `SYNC.md`).
 This audit does not claim installed synchronization or Figma parity.
 
@@ -22,10 +22,13 @@ Removed from the fork on 2026-10-17: automatic file polling and generator adopti
 The poller read and hashed every open file once per turn. A 211 MB document kept the main thread about 56% busy.
 See `/Users/patwoz/dev/Personal/thirdparty/figcraft/docs/file-synchronization.md` for the remaining contract.
 
-## Open upstream PRs in the fork
+## Carried upstream PRs in the fork
 
-The fork merges these open upstream PRs as they are, with real merge commits:
+The fork carries these upstream PRs with real merge commits:
 #287, #285, #607, #661, #659 (with #623), #320, #618, #696 (with #748) and #538. #801 is in upstream since `d8ff144`, #819 since 0.8.0.
+As checked on 2026-10-23, #696 was closed without merging on 2026-10-21; the fork retains its existing code so this sync removes no features.
+The other listed PRs remain open. #661's new head `b13e5c4` adds only two documentation comments after its upstream merge; no runtime change needs taking.
+The previously reviewed #285 and #320 rebases still change only upstream-owned progress docs; their carried heads stay unchanged.
 The manifest records each PR's merged head; `sync-upstream.sh check` reports when a head moves or a PR is merged or closed upstream.
 
 | From #593 | Status |
@@ -52,6 +55,11 @@ it needs a token shared by the LaunchAgent, the bridge and the CLI.
 
 ## Verification summary
 
+- Upstream `92b8352` (2026-10-23): **3,084 workspace tests passed, zero failed, nine ignored**, serial test execution. Formatting, workspace clippy with warnings denied, layering and assets pass. The plugin workspace adds four passing tests and one ignored doctest; its formatting and WASM clippy pass.
+- The core and web app pass `mbx check --locked --target wasm32-unknown-unknown`. All three example plugins build for WASM in release mode. The installed Rust 1.98.1 `rust-lld` initially could not locate its own `libLLVM.dylib`; a temporary linker launcher sets the library search path immediately before executing that same linker. No toolchain or machine configuration was changed. Launcher: `/tmp/figcraft-wasm-linker-20261023/rust-lld`; successful build log: `/tmp/figcraft-upstream-92b8352-plugins-linker-20261023.log`.
+- The native smoke passes on this merged tree: minimized refresh without UI frames, visible refresh, conflict preservation and three pixel-checked, visually reviewed 2400×1600 captures in `/tmp/figcraft-92b8352-smoke-20261023`.
+- Source update only: the installed bundle remains `0dde8ee` (0.7.0). No push, package pin update or activation was performed.
+
 - The installed-chain test on 2026-10-18 found lost control-request wakes. After a document change in a hidden window,
   9 of 80 direct requests waited 2 s or more, up to over 25 s. The main thread was idle in its event loop.
   A second request released each stalled request within 0.02 s. A control-server regression fails before the fix.
@@ -66,7 +74,7 @@ it needs a token shared by the LaunchAgent, the bridge and the CLI.
 - The native smoke passes with explicit refresh while minimized and visible, and with a preserved conflict.
   Three reviewed 2400×1600 captures are in `/tmp/figcraft-35da7b7-smoke-b-20261021` (before: `/tmp/figcraft-080-smoke-20261021`).
   An earlier run on the same commit showed the Rectangle tool active: a key press reached the smoke window. The repeat shows the Move tool.
-- The local WASM target is absent. GitHub Actions run the WASM check after a push.
+- Earlier checks through 2026-10-21 lacked the local WASM target. It is present on 2026-10-23; the local checks above replace that limitation.
 
 The native example uses `NoServices` and direct Engine commands, with no control listener or user preferences.
 It is not an end-to-end test of Pi, the bridge, the packaged CLI and the installed app together.
@@ -81,6 +89,8 @@ inner shadows honor their blend mode on shapes, frames and groups; SVG vector an
 still use Normal. Import/export: tracked `.figcraft` saves refuse external changes (byte baselines,
 participating-writer locks; explicit refresh, no file watching). Ranked estimates are unchanged by
 the fork.
+
+- **2026-10-23** · Upstream 0.10.0 (M0.9, local fork): merged `92b8352` over `2204088` without conflicts, adding 15 upstream commits since `35da7b7`. Releases 0.9.0 and 0.10.0 bring HTTPS-only curl downloads in Linux/server packaging, pinned Rust-toolchain/cache CI actions, SonarCloud configuration, and chrono-backed UTC/calendar formatting with compatible output for leap days, five-digit years and `u64::MAX`. The README displays the existing app icon; test comments document intentional discarded reads. The fork's protected saves, guarded targets, explicit refresh and carried PR code stay intact. Upstream-owned progress docs remain identical to upstream. Workspace: 3,084 passed, zero failed, nine ignored; native smoke and WASM checks pass as detailed above. Source only, no installation or publication. Estimates unchanged.
 
 - **2026-10-21** · Upstream 35da7b7 and the derived title in file status (M0.9, local fork): the fork now includes upstream `35da7b7`: the shared craft-window crate for Linux window frames (#971), document titles that follow the file name (#935), variant discoverability (#903/#908), component set names (#909), comment drafts cleared on a tool switch (#939), dropped documents that open (#916/#928), a scrolling pages list (#933) and parser fixes. Two files conflicted: the save keeps the protected write and encodes upstream's renamed snapshot; the control dispatcher keeps the refresh guard and target window and clears the comment draft. #935 also names a document loaded from a file titled "Untitled" after the file, without an edit. File status then reported a difference right after such a file was opened. Both fingerprints now use the file name for an empty or "Untitled" title; the new regression fails before the fix. #285 and #320 were rebased onto 0.8.0; their new heads change only upstream-owned progress docs, so the fork keeps the merged heads. Workspace: 3,082 passed, zero failed, nine ignored. The native smoke passes. Estimates unchanged.
 
