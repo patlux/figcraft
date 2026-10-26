@@ -408,9 +408,10 @@ See [file synchronization](file-synchronization.md).
 ### Hidden windows and wakes
 
 Hidden-window requests run from the main window's logic, which runs even while every window is
-hidden. A window that `window.new` opened from a window on screen, while the main window draws
-nothing, counts as hidden until the main window's frame creates it. Requests to it, including
-untargeted requests after it took the focus, answer at once in the same way.
+hidden (upstream's `background()`), including screenshots, which are admitted at once and ask the
+window to paint. A window that no frame has created yet counts as hidden for the paths that ask
+whether it draws; upstream answers `window.new` on a hidden window and any request to a window that
+does not exist as an error at once, so nothing waits for a frame.
 
 Each request wakes the main window, whose logic moves requests to the UI. Upstream wakes
 whichever window draws at that moment. A request that arrives during another window's frame, for
