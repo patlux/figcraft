@@ -1,6 +1,6 @@
 # Parity checklist
 
-> **Generated:** 2026-10-23 by `cargo xtask parity`. Do not edit by hand.
+> **Generated:** 2026-10-26 by `cargo xtask parity`. Do not edit by hand.
 
 FigCraft commands registered for the incumbent's main menu and toolbar (621 commands in the engine).
 
