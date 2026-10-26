@@ -135,11 +135,17 @@ pub fn node_json(doc: &Document, id: NodeId, depth: usize) -> Value {
         if !n.exports.is_empty() {
             o.insert("exports".into(), serde_json::to_value(&n.exports).unwrap_or(Value::Null));
         }
+        if let Some(b) = &n.board {
+            o.insert("board".into(), serde_json::to_value(b).unwrap_or(Value::Null));
+        }
         if !n.annotations.is_empty() {
             o.insert("annotations".into(), serde_json::to_value(&n.annotations).unwrap_or(Value::Null));
         }
         if !n.code_links.is_empty() {
             o.insert("codeLinks".into(), camel(serde_json::to_value(&n.code_links).unwrap_or(Value::Null)));
+        }
+        if !n.measurements.is_empty() {
+            o.insert("measurements".into(), serde_json::to_value(&n.measurements).unwrap_or(Value::Null));
         }
         let dev = crate::dev_resources::list_json(doc, n.id);
         if dev.as_array().is_some_and(|a| !a.is_empty()) {
@@ -313,7 +319,7 @@ pub fn document(s: &Session, depth: usize, all_pages: bool) -> Value {
     json!({
         "name": doc.name,
         "target": crate::target::of(Some(ds)),
-        "path": ds.path,
+        "kind": doc.kind.id(),        "path": ds.path,
         "dirty": ds.is_dirty(),
         "lastExternalRecovery": ds.external_recovery,
         "currentPage": ds.page,

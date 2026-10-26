@@ -7,118 +7,62 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use figcraft_doc::*;
+use figcraft_doc::{Document, NodeId, NodeKind, Variable, VariableId, VariableType};
 
 use crate::codegen::{CodeLang, Ctx, Markup, css_var_name, css_var_of, num};
 use crate::component_codegen::component_type_name;
+use crate::token_roles::{NumberRole, Roles};
 
 /// The breakpoint desktop classes sit behind in responsive code.
 // ponytail: one breakpoint (lg = 1024px); a tablet frame would need a second pass and `md:`.
 const BREAKPOINT: &str = "lg";
 
-/// What a number variable measures, from how layers use it (else its scopes): it picks the theme
-/// namespace and whether the CSS value takes a unit.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum NumberRole {
-    Radius,
-    FontSize,
-    Spacing,
-    /// Another length (stroke, line height, letter spacing, effects): pixels, no namespace.
-    Length,
-    /// Opacity or font weight: no unit.
-    Unitless,
-}
-
-fn role_of_field(field: &str) -> Option<NumberRole> {
-    Some(match field {
-        "cornerRadius" | "topLeftRadius" | "topRightRadius" | "bottomRightRadius" | "bottomLeftRadius" => NumberRole::Radius,
-        "fontSize" => NumberRole::FontSize,
-        "opacity" | "fontWeight" => NumberRole::Unitless,
-        f if f == "gap" || f == "counterAxisSpacing" || f.starts_with("padding") || f == "width" || f == "height" => NumberRole::Spacing,
-        f if f.starts_with("min") || f.starts_with("max") => NumberRole::Spacing,
-        "strokeWeight" | "lineHeight" | "letterSpacing" | "paragraphSpacing" | "paragraphIndent" => NumberRole::Length,
-        _ => return None,
-    })
-}
-
-fn role_of_scope(scope: &str) -> Option<NumberRole> {
-    Some(match scope {
-        "CORNER_RADIUS" => NumberRole::Radius,
-        "FONT_SIZE" => NumberRole::FontSize,
-        "GAP" | "WIDTH_HEIGHT" => NumberRole::Spacing,
-        "OPACITY" | "FONT_WEIGHT" => NumberRole::Unitless,
-        "STROKE_FLOAT" | "EFFECT_FLOAT" | "LINE_HEIGHT" | "LETTER_SPACING" | "PARAGRAPH_SPACING" | "PARAGRAPH_INDENT" => NumberRole::Length,
-        _ => return None,
-    })
-}
-
 /// The roles and Tailwind theme names of a file's variables, computed once per export so code
 /// and the `@theme` block always agree.
 #[derive(Default)]
 pub struct Theme {
-    roles: HashMap<VariableId, NumberRole>,
+    roles: Roles,
     names: HashMap<VariableId, String>,
 }
 
 impl Theme {
     pub fn new(doc: &Document) -> Self {
         let vars = &doc.variables.variables;
-        // A number's role: the first layer field bound to it, else its scopes.
-        let mut roles: HashMap<VariableId, NumberRole> = HashMap::new();
-        for n in doc.nodes() {
-            for (field, id) in &n.bound {
-                if let Some(r) = role_of_field(field) {
-                    roles.entry(id.clone()).or_insert(r);
-                }
-            }
-        }
-        for v in vars.iter().filter(|v| v.kind == VariableType::Number) {
-            if let Some(r) = v.scopes.as_ref().and_then(|s| s.iter().find_map(|s| role_of_scope(s))) {
-                roles.entry(v.id.clone()).or_insert(r);
-            }
-        }
-        // An alias target with no role of its own takes the role of the variables that read it
-        // (an opacity alias makes its target unitless too).
-        for _ in 0..8 {
-            let mut changed = false;
-            for v in vars {
-                let Some(r) = roles.get(&v.id).copied() else { continue };
-                for value in v.values.values() {
-                    if let VariableValue::Alias(target) = value
-                        && !roles.contains_key(target)
-                    {
-                        roles.insert(target.clone(), r);
-                        changed = true;
-                    }
-                }
-            }
-            if !changed {
-                break;
-            }
-        }
+        let roles = Roles::new(doc);
         let mut t = Theme { roles, names: HashMap::new() };
         // Short names ("accent") where they are unique, the full path ("palette-accent") where two
         // variables would share one, and a numeric suffix as a last resort.
-        let short: Vec<(VariableId, String)> = vars.iter().map(|v| (v.id.clone(), t.candidate(v, false))).collect();
-        let mut taken: Vec<String> = Vec::new();
-        for (v, (id, s)) in vars.iter().zip(&short) {
-            let clash = short.iter().any(|(o, n)| o != id && n == s);
-            let base = if clash { t.candidate(v, true) } else { s.clone() };
-            let name = (1..).map(|k| if k == 1 { base.clone() } else { format!("{base}-{k}") }).find(|n| !taken.contains(n)).unwrap_or(base);
-            taken.push(name.clone());
-            t.names.insert(id.clone(), name);
+        let short: Vec<String> = vars.iter().map(|v| t.candidate(v, false)).collect();
+        // Linear in the number of variables: counts for clashes, a set of names taken and the next
+        // suffix per base, so a file with very many variables can't make this quadratic.
+        let mut count: HashMap<&str, usize> = HashMap::new();
+        for n in &short {
+            *count.entry(n.as_str()).or_default() += 1;
+        }
+        let mut taken: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut next: HashMap<String, usize> = HashMap::new();
+        for (v, s) in vars.iter().zip(&short) {
+            let base = if count.get(s.as_str()).copied().unwrap_or(0) > 1 { t.candidate(v, true) } else { s.clone() };
+            let mut name = base.clone();
+            if taken.contains(&name) {
+                let k = next.entry(base.clone()).or_insert(1);
+                loop {
+                    *k += 1;
+                    name = format!("{base}-{k}");
+                    if !taken.contains(&name) {
+                        break;
+                    }
+                }
+            }
+            taken.insert(name.clone());
+            t.names.insert(v.id.clone(), name);
         }
         t
     }
 
     /// What a number variable measures; a number nothing tells about is a length.
     pub fn role(&self, v: &Variable) -> NumberRole {
-        self.roles.get(&v.id).copied().unwrap_or(NumberRole::Length)
-    }
-
-    /// A number variable's CSS value: pixels for lengths, bare for opacity and font weight.
-    pub fn number_css(&self, v: &Variable, x: f64) -> String {
-        if self.role(v) == NumberRole::Unitless { num(x) } else { format!("{}px", num(x)) }
+        self.roles.role(v)
     }
 
     /// The theme variable for `v`, unique in the file (see [`Theme::new`]).
@@ -161,9 +105,22 @@ fn arb(v: &str) -> String {
     format!("[{}]", v.trim().replace('_', "\\_").replace(' ', "_"))
 }
 
-/// The custom property a `var(--name, fallback)` value reads.
+/// The custom property a `var(--name, fallback)` value reads, when that one call is the whole
+/// value (not `var(--a, 4px) 8px`, four corners of which only the first is a variable).
 fn var_name(v: &str) -> Option<&str> {
     let inner = v.trim().strip_prefix("var(")?;
+    let mut depth = 1usize;
+    let close = inner.char_indices().find_map(|(i, c)| {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            _ => {}
+        }
+        (depth == 0).then_some(i)
+    })?;
+    if close + 1 != inner.len() {
+        return None;
+    }
     Some(inner.split([',', ')']).next()?.trim())
 }
 
@@ -396,7 +353,8 @@ fn reset(key: &str) -> Option<String> {
         "border-radius" => "rounded-none",
         "box-shadow" => "shadow-none",
         "font-style" => "not-italic",
-        "background" => "bg-transparent",
+        // The whole background: a mobile image or gradient would survive a colour-only reset.
+        "background" => "bg-none bg-transparent",
         "border-color" => "border-current",
         "letter-spacing" => "tracking-normal",
         "line-height" => "leading-normal",
@@ -446,7 +404,7 @@ fn zero_padding(sides: [bool; 4]) -> Vec<&'static str> {
 
 /// Mobile classes plus, behind the breakpoint, the desktop ones that differ (and resets for what
 /// desktop leaves unset). A layer missing on mobile is hidden there.
-fn merge(mobile: Option<&[(String, String)]>, desktop: &[(String, String)]) -> Vec<String> {
+pub(crate) fn merge(mobile: Option<&[(String, String)]>, desktop: &[(String, String)]) -> Vec<String> {
     let hidden = [("display".to_string(), "hidden".to_string())];
     // A mobile frame's widths are the phone's, not caps: below the breakpoint boxes fill the page.
     let fluid: Vec<(String, String)>;
@@ -468,7 +426,7 @@ fn merge(mobile: Option<&[(String, String)]>, desktop: &[(String, String)]) -> V
         if !desktop.iter().any(|(d, _)| d == k)
             && let Some(r) = reset(k)
         {
-            out.push(bp(&r));
+            out.extend(r.split_whitespace().map(bp));
         }
     }
     // Padding utilities overlap (p, px/py, pt…): compare side by side, and zero on desktop the
@@ -509,7 +467,7 @@ pub fn code(doc: &Document, id: NodeId, mobile: Option<NodeId>) -> String {
     // ponytail: layers only on mobile are listed, not merged in; their place in the tree is ambiguous.
     let only_mobile: Vec<String> = small
         .iter()
-        .flat_map(|m| m.keys())
+        .flat_map(BTreeMap::keys)
         .filter(|p| !rules.iter().any(|(d, _, _)| d == *p))
         .map(|p| p.trim_start_matches('/').split('/').map(|seg| seg.rsplit_once('#').map_or(seg, |(n, _)| n)).collect::<Vec<_>>().join(" › "))
         .take(20)

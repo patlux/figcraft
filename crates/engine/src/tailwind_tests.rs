@@ -4,8 +4,8 @@
 
 use crate::Session;
 use crate::components::tests::{ex, idv};
-use crate::tailwind::classes;
-use figcraft_doc::*;
+use crate::tailwind::{classes, merge};
+use figcraft_doc::NodeId;
 use serde_json::json;
 
 fn code(s: &mut Session, id: NodeId, extra: serde_json::Value) -> String {
@@ -66,7 +66,7 @@ fn per_side_strokes_are_borders_on_those_sides() {
     let css = ex(&mut s, "inspect.code", json!({"id": f, "language": "css"}))["code"].as_str().unwrap_or_default().to_string();
     assert!(css.contains("border-bottom: 1px solid") && !css.contains("border:"), "{css}");
     let tw = code(&mut s, f, json!({}));
-    assert!(tw.contains("border-b ") && tw.contains("border-[#262a31]") || tw.contains("border-[#262A31]"), "{tw}");
+    assert!(tw.contains("border-b ") && (tw.contains("border-[#262a31]") || tw.contains("border-[#262A31]")), "{tw}");
     // Without per-side weights it is one border.
     ex(&mut s, "node.set", json!({"id": f, "props": {"strokeSides": null, "strokeWeight": 2}}));
     let css = ex(&mut s, "inspect.code", json!({"id": f, "language": "css"}))["code"].as_str().unwrap_or_default().to_string();
@@ -140,7 +140,7 @@ fn variables_export_with_units_and_as_a_tailwind_theme() {
     let css = ex(&mut s, "variable.export", json!({"format": "css"}))["text"].as_str().unwrap_or_default().to_string();
     assert!(css.contains("--card: 12px;") && css.contains("--fade: 0.5;"), "{css}");
     let tw = ex(&mut s, "variable.export", json!({"format": "tailwind"}))["text"].as_str().unwrap_or_default().to_string();
-    for want in ["@import \"tailwindcss\";", "@theme {", "--color-accent: #3ddc97;", "--radius-card: 12px;", "--fade: 0.5;"] {
+    for want in ["@import \"tailwindcss\";", "@theme static {", "--color-accent: #3ddc97;", "--radius-card: 12px;", "--fade: 0.5;"] {
         assert!(tw.to_lowercase().contains(&want.to_lowercase()), "{want} in {tw}");
     }
 }
@@ -192,7 +192,7 @@ fn slashed_layer_names_and_phone_widths_merge_right() {
     assert!(button.contains("self-stretch") && button.contains("lg:self-auto"), "the slashed name keeps its mobile classes: {out}");
     assert!(!out.contains("max-w-[342px] ") || out.contains("lg:max-w-[342px]"), "no phone-width cap below lg: {out}");
     assert!(out.contains("Only in the mobile frame") && out.contains("Tag"), "{out}");
-    let divider = out.lines().filter(|l| l.contains("<div") && l.contains("h-[1px]") || l.contains("h-px")).count();
+    let divider = out.lines().filter(|l| l.contains("<div") && (l.contains("h-[1px]") || l.contains("h-px"))).count();
     assert!(out.contains("w-full") && divider <= 2, "{out}");
 }
 
@@ -220,36 +220,6 @@ fn mobile_only_layer_names_cant_break_out_of_the_header_comment() {
     assert!(header.starts_with("// ") && header.contains("alert(1)"), "listed inside the comment: {out}");
     assert!(out.lines().nth(1).is_some_and(|l| l.starts_with("export function ")), "{out}");
     assert!(!out.contains(['\r', '\u{2028}', '\u{2029}']), "{out:?}");
-}
-
-#[test]
-fn page_code_guesses_the_h1_landmarks_and_buttons_nothing_marked() {
-    let mut s = Session::new();
-    let p = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 0, "width": 1440, "height": 900, "name": "Landing"})));
-    ex(&mut s, "layout.add", json!({"ids": [p], "direction": "vertical"}));
-    let nav = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 0, "width": 1440, "height": 64, "parent": p, "name": "Nav"})));
-    ex(&mut s, "text.create", json!({"text": "LookADev", "x": 0, "y": 0, "parent": nav, "props": {"name": "Logo", "fontSize": 22}}));
-    ex(&mut s, "text.create", json!({"text": "Seu site em 7 dias", "x": 0, "y": 0, "parent": p, "props": {"name": "Hero copy", "fontSize": 60}}));
-    ex(&mut s, "text.create", json!({"text": "Investimento", "x": 0, "y": 0, "parent": p, "props": {"name": "Pricing title", "fontSize": 32}}));
-    let cta = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 0, "width": 200, "height": 48, "parent": p, "name": "CTA Primary"})));
-    ex(&mut s, "text.create", json!({"text": "Agendar", "x": 0, "y": 0, "parent": cta, "props": {"name": "Label", "fontSize": 16}}));
-    ex(&mut s, "frame.create", json!({"x": 0, "y": 0, "width": 1440, "height": 80, "parent": p, "name": "Footer"}));
-    let out = code(&mut s, p, json!({}));
-    assert!(out.contains("<nav className="), "{out}");
-    assert!(out.contains("<h1 className=") && out.contains(">Seu site em 7 dias</h1>"), "{out}");
-    assert!(out.contains("<h2 className=") && out.contains(">Investimento</h2>"), "{out}");
-    assert!(out.contains("<button className=") && out.contains("type=\"button\"") && out.contains(">Agendar</span>"), "{out}");
-    assert!(out.contains("<footer className="), "{out}");
-    assert_eq!(out.matches("<h1").count(), 1);
-    // A heading level 1 annotation elsewhere wins: no second h1 is guessed.
-    let logo = s.doc().unwrap().node(nav).unwrap().children[0];
-    ex(&mut s, "annotation.add", json!({"id": logo, "label": "h1", "category": "accessibility"}));
-    let out = code(&mut s, p, json!({}));
-    assert_eq!(out.matches("<h1").count(), 1, "{out}");
-    assert!(out.contains(">LookADev</h1>"), "{out}");
-    // Plain React code guesses nothing.
-    let react = ex(&mut s, "inspect.code", json!({"id": p, "language": "react"}))["code"].as_str().unwrap_or_default().to_string();
-    assert!(!react.contains("<nav") && !react.contains("<footer"), "{react}");
 }
 
 #[test]
@@ -356,4 +326,17 @@ fn review_desktop_defaults_reset_mobile_values_and_padding_per_side() {
     let root = out.lines().nth(3).unwrap_or_default();
     assert!(root.contains("opacity-50") && root.contains("lg:opacity-100"), "{root}");
     assert!(root.contains("p-6") && root.contains("lg:px-16") && root.contains("lg:py-0"), "{root}");
+}
+
+#[test]
+fn review_desktop_without_fill_clears_a_mobile_image_or_gradient() {
+    let got = merge(Some(&[("background".to_string(), "[background:url(image.png)_center_/_cover]".to_string())]), &[]);
+    assert!(got.contains(&"lg:bg-none".to_string()) && got.contains(&"lg:bg-transparent".to_string()), "{got:?}");
+}
+
+#[test]
+fn per_corner_radii_with_a_variable_first_keep_every_corner() {
+    let got: Vec<String> =
+        classes("border-radius: var(--radius-a, 4px) 8px 8px 8px;\nborder-radius: var(--radius-card, 4px);\n").into_iter().map(|(_, c)| c).collect();
+    assert_eq!(got, ["rounded-[var(--radius-a,_4px)_8px_8px_8px]", "rounded-card"]);
 }

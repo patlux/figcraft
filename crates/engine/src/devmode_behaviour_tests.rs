@@ -6,7 +6,7 @@ use crate::Session;
 use crate::components::tests::{ex, idv};
 use crate::devinspect::dev_mode_allows;
 use crate::tools::{PointerEvent, PointerKind, ToolId};
-use figcraft_doc::*;
+use figcraft_doc::{DevStatus, NodeId};
 use serde_json::{Value, json};
 
 fn ev(kind: PointerKind, x: f64, y: f64) -> PointerEvent {
@@ -123,6 +123,8 @@ fn dev_mode_runs_its_own_edits_and_refuses_design_edits_from_menus_and_shortcuts
         "tool.text",
         "tool.place",
         "file.import",
+        "file.revert",
+        "data.fill",
     ] {
         assert!(!dev_mode_allows(id), "{id} edits the design");
     }
@@ -204,4 +206,20 @@ fn the_focus_view_steps_through_what_is_ready_and_skips_completed_frames() {
     assert_eq!(step(&mut s, "previous")["id"], json!(a));
     // Any top-level frame opens in it, even one that's completed.
     assert_eq!(ex(&mut s, "dev.focus", json!({"id": b}))["index"], json!(null));
+}
+
+#[test]
+fn a_drag_under_way_when_dev_mode_starts_moves_nothing() {
+    let mut s = Session::new();
+    let f = frame(&mut s, 0.0, "Screen");
+    let r = rect(&mut s, f, 20.0);
+    ex(&mut s, "select.set", json!({"ids": [r]}));
+    let before = s.doc().unwrap().world_bounds(r);
+    s.pointer(&ev(PointerKind::Down, 40.0, 40.0)).unwrap();
+    s.pointer(&ev(PointerKind::Move, 90.0, 40.0)).unwrap();
+    s.drop_gesture().unwrap();
+    s.tool.dev_mode = true;
+    s.pointer(&ev(PointerKind::Move, 120.0, 40.0)).unwrap();
+    s.pointer(&ev(PointerKind::Up, 120.0, 40.0)).unwrap();
+    assert_eq!(s.doc().unwrap().world_bounds(r), before, "the drag was dropped, not committed");
 }

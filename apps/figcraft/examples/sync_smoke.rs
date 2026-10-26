@@ -6,6 +6,7 @@ use figcraft_ui_egui::{FigApp, NoServices};
 use serde_json::json;
 use std::{
     path::PathBuf,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
@@ -21,6 +22,8 @@ struct Smoke {
     hidden_verified: bool,
     capture_after: Instant,
     verified_screenshots: u8,
+    /// Where the renderer's one-shot capture callback puts the image (egui 0.37).
+    shot: Arc<Mutex<Option<Arc<egui::ColorImage>>>>,
 }
 
 fn execute(s: &mut Session, cmd: &str, p: serde_json::Value) -> Result<serde_json::Value, String> {
@@ -52,6 +55,7 @@ impl Smoke {
             hidden_verified: false,
             capture_after: Instant::now(),
             verified_screenshots: 0,
+            shot: Arc::new(Mutex::new(None)),
         })
     }
     fn change_external(&self, name: &str, color: &str) -> Result<(), String> {
@@ -186,15 +190,8 @@ impl eframe::App for Smoke {
         self.frame += 1;
         let ctx = ui.ctx().clone();
         self.app.ui(ui);
-        let shots = ctx.input(|i| {
-            i.events
-                .iter()
-                .filter_map(|e| match e {
-                    egui::Event::Screenshot { image, .. } => Some(image.clone()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-        });
+        // The capture arrives through the one-shot callback the request carried (egui 0.37).
+        let shots: Vec<Arc<egui::ColorImage>> = self.shot.lock().map(|mut s| s.take().into_iter().collect()).unwrap_or_default();
         for image in shots {
             let name = match self.stage {
                 3 => "01-refreshed.png",
@@ -235,7 +232,12 @@ impl eframe::App for Smoke {
             }
         }
         if matches!(self.stage, 3 | 5 | 8) && !self.requested && Instant::now() >= self.capture_after {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
+            let slot = Arc::clone(&self.shot);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::ScreenshotCallback::new(move |image| {
+                if let Ok(mut slot) = slot.lock() {
+                    *slot = Some(image);
+                }
+            })));
             self.requested = true;
         }
     }

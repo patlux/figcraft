@@ -1,6 +1,6 @@
 # Local agent workflow audit
 
-Date: 2026-10-23. Scope: the slim local fork, merged with upstream `92b8352` (release 0.10.0 and later) and with carried upstream PRs, and the paired Python bridge and agent skill.
+Date: 2026-10-26. Scope: the slim local fork, merged with upstream `63d9268` (release 0.11.2) and with carried upstream PRs, and the paired Python bridge and agent skill.
 The fork's manifest, sync script and runbook are in `/Users/patwoz/dev/Personal/infra/nix/hosts/darwin/mbpromax/figcraft/` (`fork-manifest.toml`, `sync-upstream.sh`, `SYNC.md`).
 This audit does not claim installed synchronization or Figma parity.
 
@@ -13,7 +13,7 @@ This audit does not claim installed synchronization or Figma parity.
 | `file.status` (MCP `file_status`) | Fork only | Exact live/disk observation. It does not change anything. |
 | Explicit `file.refresh` (MCP `refresh_file`) | Fork only | Loads an external write into the open document with a recovery copy and one undo step. |
 | Queued imports refuse replacement in every window | Fork only | Upstream's drop queue could otherwise edit a document that a refresh replaced. |
-| A window not created yet counts as hidden | Fork only | Without it, untargeted requests wait for a window that the hidden main window never creates. |
+| A window not created yet counts as hidden | Fork only (narrowed) | Upstream's `background()` answers such a request with "no window" at once, so nothing hangs; the fork's `hidden()` still counts an uncreated window as hidden for the paths that ask it. |
 | Control requests wake the main window | Fork only | Upstream wakes the window that draws at that moment. A request during another window's frame then waited 10 s or more. |
 | CPU inner-shadow blend modes | Fork only | Upstream still draws inner shadows with Normal. No current design depends on other modes. |
 | Protected I/O behind upstream automation roots (#715) | Fork only | The fork's tracked reads, writes and locks use the same roots as every other engine file access. |
@@ -25,9 +25,12 @@ See `/Users/patwoz/dev/Personal/thirdparty/figcraft/docs/file-synchronization.md
 ## Carried upstream PRs in the fork
 
 The fork carries these upstream PRs with real merge commits:
-#287, #285, #607, #661, #659 (with #623), #320, #618, #696 (with #748) and #538. #801 is in upstream since `d8ff144`, #819 since 0.8.0.
-As checked on 2026-10-23, #696 was closed without merging on 2026-10-21; the fork retains its existing code so this sync removes no features.
-The other listed PRs remain open. #661's new head `b13e5c4` adds only two documentation comments after its upstream merge; no runtime change needs taking.
+#287, #285, #659, #320, #618, #696 (with #748) and #593 ported separately. #801 is in upstream since `d8ff144`, #819 since 0.8.0,
+and #607, #661, #623 and #538 since 0.11.2 (they were dropped from the manifest after that merge).
+#696 was closed without merging on 2026-10-21; after 0.11.2 its React/Tailwind code, `data.fill` and `text.fit` are upstream's too
+(#1009 and #1011 landed the same feature in another form), so the fork's copy is down to #748's semantic HTML:
+`crates/engine/src/semantics.rs` and the semantic parts of `codegen.rs` (headings and landmarks, links and anchors,
+`aria-label` for icons, no nested interactive content). The other listed PRs remain open.
 The previously reviewed #285 and #320 rebases still change only upstream-owned progress docs; their carried heads stay unchanged.
 The manifest records each PR's merged head; `sync-upstream.sh check` reports when a head moves or a PR is merged or closed upstream.
 
@@ -35,7 +38,7 @@ The manifest records each PR's merged head; `sync-upstream.sh check` reports whe
 |---|---|
 | `node.createTree` / MCP `create_tree`, `inspect.outline` / `outline`, `inspect.lint` / `lint_layout`, `text.measure` | Ported |
 | `edit.duplicate` returns `map`, the copy of every copied layer | Ported. Since 0.8.0 (#892) a main component's copy is an instance; the map names the instance layers that mirror the main's layers. |
-| `ui.screenshot {after}`: wait up to 30 s before the capture | Ported |
+| `ui.screenshot {after}`: wait up to 30 s before the capture | Ported onto upstream's capture state as `ShotRequest.not_before` (0.11.2 rewrote the whole pipeline) |
 | `--autosave` / `FIGCRAFT_MCP_AUTOSAVE=1` | Ported. It calls the protected `file.save`: a file that another program changed stays, and the tool result carries a note. |
 | Preferences ▸ AI agents, client installer, port management, client hello | Not ported. The fork starts the control port from the LaunchAgent and installs clients through Nix. |
 
@@ -52,12 +55,22 @@ it needs a token shared by the LaunchAgent, the bridge and the CLI.
 - Upstream merged the parameter guards #675 and #608, the drop queue #601 and grouped scripts #673.
   The upstream code replaces the fork's selective copies.
 - Finder/Dock open (#290) and long home-screen paths (#324).
+- Open PRs the fork merged before: #607 (stroke rings when outlining), #661 (Adobe Fonts on macOS),
+  #623 (system theme on Linux and the BSDs) and #538 (Dev Mode tail: imports in layer trees,
+  compare with versions, an inspect-only canvas) are upstream's since 0.11.2.
+- #748's sibling work: upstream's #1009/#1011 brought `data.fill`, `text.fit` and the Tailwind theme
+  export, so the fork keeps only the semantic HTML.
 
 ## Verification summary
 
-- Upstream `92b8352` (2026-10-23): **3,084 workspace tests passed, zero failed, nine ignored**, serial test execution. Formatting, workspace clippy with warnings denied, layering and assets pass. The plugin workspace adds four passing tests and one ignored doctest; its formatting and WASM clippy pass.
+- Upstream `63d9268` (2026-10-26): **3,763 workspace tests passed, zero failed, nine ignored**, serial test execution.
+  Formatting, workspace clippy with warnings denied, layering, assets and parity pass.
+- Upstream `92b8352` (2026-10-23): 3,084 workspace tests passed, zero failed, nine ignored, serial test execution. Formatting, workspace clippy with warnings denied, layering and assets pass. The plugin workspace adds four passing tests and one ignored doctest; its formatting and WASM clippy pass.
 - The core and web app pass `mbx check --locked --target wasm32-unknown-unknown`. All three example plugins build for WASM in release mode. The installed Rust 1.98.1 `rust-lld` initially could not locate its own `libLLVM.dylib`; a temporary linker launcher sets the library search path immediately before executing that same linker. No toolchain or machine configuration was changed. Launcher: `/tmp/figcraft-wasm-linker-20261023/rust-lld`; successful build log: `/tmp/figcraft-upstream-92b8352-plugins-linker-20261023.log`.
-- The native smoke passes on this merged tree: minimized refresh without UI frames, visible refresh, conflict preservation and three pixel-checked, visually reviewed 2400×1600 captures in `/tmp/figcraft-92b8352-smoke-20261023`.
+- The native smoke passes on the 0.11.2 merge: minimized refresh without UI frames, visible refresh, conflict preservation and
+  three pixel-checked, visually reviewed 2400×1600 captures in `/tmp/figcraft-63d9268-smoke-20261026-1626`. Its capture path now
+  uses egui 0.37's one-shot `ScreenshotCallback`, as the app does.
+- The native smoke passes on the earlier `92b8352` tree too: `/tmp/figcraft-92b8352-smoke-20261023`.
 - Source update only: the installed bundle remains `0dde8ee` (0.7.0). No push, package pin update or activation was performed.
 
 - The installed-chain test on 2026-10-18 found lost control-request wakes. After a document change in a hidden window,
@@ -89,6 +102,8 @@ inner shadows honor their blend mode on shapes, frames and groups; SVG vector an
 still use Normal. Import/export: tracked `.figcraft` saves refuse external changes (byte baselines,
 participating-writer locks; explicit refresh, no file watching). Ranked estimates are unchanged by
 the fork.
+
+- **2026-10-26** · Upstream 0.11.2 (M0.9, local fork): merged `63d9268` over `4b47328`, 633 upstream commits and 45 conflicted files. Upstream brings boards as a file kind of their own (sticky notes, shapes with text, connectors that re-route, marker, highlighter, eraser, stamps, a dot grid, connector ends dragged to re-attach, curved connectors, templates and tables, a shared timer and voting), branches in live sessions, plugin widgets that take text input and a property menu (plugin API 4), Dev Mode measurements kept on the canvas with a read-only layers panel, best-effort `.sketch` import, the egui 0.37 move (a rewritten capture pipeline, `sync_dev_mode`), nine reviewed or drafted languages with Thai and CJK font work, JIS X 4051 line breaking, an update prompt with self-updating, and a batch of security hardening. Upstream-owned progress docs are upstream's again; the merged open PRs' rows came back with upstream's merges of #607, #661, #623 and #538, so those left the manifest. The fork's #696 copy is down to #748's semantic HTML: `data.fill`, `text.fit`, the React/Tailwind code and the Tailwind theme export are upstream's since #1009/#1011, in a refactored form the fork now uses. `ui.screenshot {after}` (from #593) was ported onto upstream's new capture state as `ShotRequest.not_before`, its own time also wakes an idle app, and a guarded screenshot's `target` is now checked when the capture is admitted (routed through the window's own document for a hidden window). The fork's `drain_hidden` is gone: upstream's `background()` serves hidden windows, including screenshots that are admitted at once and forced to paint; the fork's `hidden()` still counts a window the hidden main window has not created as hidden, but its own regression was dropped because upstream refuses `window.new` while hidden and answers "no window" for a window that does not exist. Two upstream gaps fixed on the way: synthetic `ui.input` events set `ctrl` together with `cmd`, which made every Cmd shortcut injected on macOS miss (upstream's new clipboard-fence regression failed here before the fix), and the fork's blanket Dev Mode refusal in `menus::paste` blocked a comment link, which upstream now lets the engine decide. Formatting, workspace clippy (warnings denied), layering, assets and parity pass; workspace 3,763 passed, zero failed, nine ignored; the native smoke passes with three reviewed captures. Source only: no push, package pin or activation.
 
 - **2026-10-23** · Upstream 0.10.0 (M0.9, local fork): merged `92b8352` over `2204088` without conflicts, adding 15 upstream commits since `35da7b7`. Releases 0.9.0 and 0.10.0 bring HTTPS-only curl downloads in Linux/server packaging, pinned Rust-toolchain/cache CI actions, SonarCloud configuration, and chrono-backed UTC/calendar formatting with compatible output for leap days, five-digit years and `u64::MAX`. The README displays the existing app icon; test comments document intentional discarded reads. The fork's protected saves, guarded targets, explicit refresh and carried PR code stay intact. Upstream-owned progress docs remain identical to upstream. Workspace: 3,084 passed, zero failed, nine ignored; native smoke and WASM checks pass as detailed above. Source only, no installation or publication. Estimates unchanged.
 

@@ -179,7 +179,7 @@ pub fn show(app: &mut FigApp, ctx: &egui::Context) {
     let mut open = true;
     let mut action = None;
     egui::Window::new("Compare changes")
-        .id(Id::new("dev_compare_window"))
+        .id(Id::unique("dev_compare_window"))
         .title_bar(false)
         .collapsible(false)
         .resizable(false)
@@ -197,25 +197,7 @@ pub fn show(app: &mut FigApp, ctx: &egui::Context) {
             ui.horizontal_top(|ui| {
                 let images_w = size.x - LIST_W - 1.0;
                 let (r, _) = ui.allocate_exact_size(vec2(images_w, body_h), Sense::hover());
-                if !cache.cmp.snapshot {
-                    let msg = if view.version.is_some() {
-                        tr("This version can't be read.")
-                    } else if cache.cmp.changed {
-                        tr(
-                            "What this changed from isn't known: it changed before FigCraft kept a copy of ready-for-dev frames. Resolve the change (or mark it ready again) to compare from now on.",
-                        )
-                    } else {
-                        tr("Nothing changed since this was marked ready for dev.")
-                    };
-                    message(ui, &t, r, msg);
-                } else if !cache.cmp.changed && view.version.is_some() {
-                    message(ui, &t, r, tr("Nothing changed since this version."));
-                } else if let (Some(before), Some(after)) = (&cache.before, &cache.after) {
-                    let before_label = version_name.as_deref().unwrap_or(tr("Before"));
-                    images(ui, &t, r, [(before, before_label), (after, tr("Now"))], view.mode, &mut view.split, view.hovered);
-                } else if view.version.is_some() {
-                    message(ui, &t, r, tr("This version doesn't have it: all of it is new."));
-                }
+                compared(ui, r, cache, version_name.as_deref(), view.mode, &mut view.split, view.hovered);
                 let (line, _) = ui.allocate_exact_size(vec2(1.0, body_h), Sense::hover());
                 ui.painter().rect_filled(line, CornerRadius::ZERO, t.border);
                 ui.allocate_ui_with_layout(vec2(LIST_W, body_h), top_down, |ui| {
@@ -247,6 +229,31 @@ pub fn show(app: &mut FigApp, ctx: &egui::Context) {
     }
 }
 
+/// The images area: before and after, or a note saying why there is nothing to show.
+/// `version_name`: the saved version compared with (`None`: the ready-for-dev snapshot).
+fn compared(ui: &mut Ui, r: Rect, cache: &Cached, version_name: Option<&str>, mode: Mode, split: &mut f32, hovered: Option<NodeId>) {
+    let t = &Tokens::get(ui.ctx());
+    let against = version_name.is_some();
+    if !cache.cmp.snapshot {
+        let msg = if against {
+            tr("This version can't be read.")
+        } else if cache.cmp.changed {
+            tr(
+                "What this changed from isn't known: it changed before FigCraft kept a copy of ready-for-dev frames. Resolve the change (or mark it ready again) to compare from now on.",
+            )
+        } else {
+            tr("Nothing changed since this was marked ready for dev.")
+        };
+        message(ui, t, r, msg);
+    } else if !cache.cmp.changed && against {
+        message(ui, t, r, tr("Nothing changed since this version."));
+    } else if let (Some(before), Some(after)) = (&cache.before, &cache.after) {
+        images(ui, t, r, [(before, version_name.unwrap_or(tr("Before"))), (after, tr("Now"))], mode, split, hovered);
+    } else if against {
+        message(ui, t, r, tr("This version doesn't have it: all of it is new."));
+    }
+}
+
 enum Action {
     Select(NodeId),
     Resolve,
@@ -270,7 +277,7 @@ pub(crate) fn header(ui: &mut Ui, t: &Tokens, title: &str, name: &str, mode: &mu
     for (m, label) in modes.iter().rev() {
         let g = ui.painter().layout_no_wrap((*label).into(), regular(11.0), t.text);
         let cell = Rect::from_min_max(pos2(x - g.size().x - 20.0, r.center().y - 12.0), pos2(x, r.center().y + 12.0));
-        let resp = ui.interact(cell, Id::new(("compare_mode", label)), Sense::click());
+        let resp = ui.interact(cell, Id::unique(("compare_mode", label)), Sense::click());
         let on = *mode == *m;
         crate::a11y::tab(&resp, label, on);
         if on {
@@ -287,7 +294,7 @@ pub(crate) fn header(ui: &mut Ui, t: &Tokens, title: &str, name: &str, mode: &mu
     }
     if widgets::icon_button_at(
         ui,
-        Id::new("compare_close"),
+        Id::unique("compare_close"),
         Rect::from_center_size(pos2(r.max.x - 24.0, r.center().y), vec2(24.0, 24.0)),
         Icon::Close,
         tr("Close"),
@@ -337,7 +344,7 @@ pub(crate) fn images(ui: &mut Ui, t: &Tokens, r: Rect, shots: [(&Shot, &str); 2]
             p.text(pos2(img.min.x, label_y), Align2::LEFT_CENTER, before_label, semibold(11.0), t.text_secondary);
             p.text(pos2(img.max.x, label_y), Align2::RIGHT_CENTER, after_label, semibold(11.0), t.text_secondary);
             // The slider: a line with a knob, dragged (or clicked) anywhere over the images.
-            let resp = ui.interact(img, Id::new("compare_split"), Sense::click_and_drag());
+            let resp = ui.interact(img, Id::unique("compare_split"), Sense::click_and_drag());
             if let Some(pos) = resp.interact_pointer_pos().filter(|_| resp.dragged() || resp.clicked()) {
                 *split = ((pos.x - img.min.x) / img.width().max(1.0)).clamp(0.0, 1.0);
             }

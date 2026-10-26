@@ -2,8 +2,8 @@
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::{Arc, Mutex};
 
 use figcraft_engine::{Prefs, Session};
 use figcraft_ui_egui::{DialogFuture, FigApp, Services};
@@ -11,6 +11,7 @@ use serde_json::{Value, json};
 
 pub struct Desktop {
     clipboard: Option<arboard::Clipboard>,
+    egui_ctx: Option<egui::Context>,
     /// Where the preferences live ([`config_dir`]).
     dir: Option<PathBuf>,
     pub prefs: Option<Prefs>,
@@ -22,6 +23,8 @@ pub struct Desktop {
     language: Option<String>,
     /// Recovery copies of unsaved files (written at once after a panic).
     recovery: crate::recovery::Shared,
+    /// The folder of the last file or folder a dialog picked, where the next one starts.
+    last_folder: Arc<Mutex<Option<PathBuf>>>,
 }
 
 pub fn config_dir() -> Option<PathBuf> {
@@ -57,18 +60,32 @@ impl Desktop {
         let flag = reduce_motion.clone();
         std::thread::spawn(move || flag.store(system_reduce_motion(), Ordering::Relaxed));
         let dark = Arc::new(AtomicU8::new(DARK_UNKNOWN));
-        // winit reports no system theme on Linux and the BSDs: the freedesktop colour scheme
-        // answers instead, read once and then watched in the background.
+        Self {
+            clipboard: arboard::Clipboard::new().ok(),
+            egui_ctx: None,
+            dir,
+            prefs,
+            reduce_motion,
+            dark,
+            language: system_language(),
+            recovery,
+            last_folder: Arc::default(),
+        }
+    }
+
+    /// winit reports no system theme on Linux and the BSDs: there the freedesktop colour scheme
+    /// answers instead, read once and then watched in the background, calling `wake` when it
+    /// changes (an idle window draws no frames). Elsewhere this does nothing.
+    pub fn follow_system_dark(&self, wake: impl Fn() + Send + 'static) {
         #[cfg(all(unix, not(target_os = "macos")))]
         if let Err(e) = std::thread::Builder::new().name("figcraft-theme".into()).spawn({
-            let dark = dark.clone();
-            move || watch_system_dark(dark)
+            let dark = self.dark.clone();
+            move || watch_system_dark(&dark, &wake)
         }) {
             log::info!("colour scheme: can't start the watcher: {e}");
         }
         #[cfg(not(all(unix, not(target_os = "macos"))))]
-        let _ = dark;
-        Self { clipboard: arboard::Clipboard::new().ok(), dir, prefs, reduce_motion, dark, language: system_language(), recovery }
+        let _ = wake;
     }
 }
 
@@ -156,33 +173,44 @@ const DARK_DARK: u8 = 1;
 const DARK_LIGHT: u8 = 2;
 
 /// The desktop's colour scheme through the freedesktop settings portal
-/// (`org.freedesktop.appearance` / `color-scheme`: 1 dark, 2 light), read once and then watched
-/// for changes. Without a session bus or a portal the scheme stays unknown and the UI keeps its
-/// light fallback.
+/// (`org.freedesktop.appearance` / `color-scheme`: 1 dark, 2 light, 0 no preference, which is
+/// light), read once and then watched for changes, each one calling `wake`. Without a session bus
+/// or a portal the scheme stays unknown and the UI keeps its light fallback.
 #[cfg(all(unix, not(target_os = "macos")))]
-fn watch_system_dark(dark: Arc<AtomicU8>) {
+fn watch_system_dark(dark: &AtomicU8, wake: &dyn Fn()) {
+    use zbus::zvariant::Value;
     const PORTAL: &str = "org.freedesktop.portal.Desktop";
     const SETTINGS: &str = "org.freedesktop.portal.Settings";
     const APPEARANCE: &str = "org.freedesktop.appearance";
-    let store = |v: u32| match v {
-        1 => dark.store(DARK_DARK, Ordering::Relaxed),
-        2 => dark.store(DARK_LIGHT, Ordering::Relaxed),
-        _ => {}
+    // `Read` (portals before 1.17, which lack `ReadOne`) wraps the value in one more variant.
+    let scheme = |v: &Value| match v {
+        Value::U32(x) => *x,
+        Value::Value(inner) => match **inner {
+            Value::U32(x) => x,
+            _ => 0,
+        },
+        _ => 0,
+    };
+    let store = |v: u32| {
+        let new = match v {
+            1 => DARK_DARK,
+            2 => DARK_LIGHT,
+            _ => DARK_UNKNOWN,
+        };
+        if dark.swap(new, Ordering::Relaxed) != new {
+            wake();
+        }
     };
     let Ok(conn) = zbus::blocking::connection::Builder::session().and_then(|b| b.build()) else {
         log::info!("colour scheme: no session bus: the system theme isn't followed");
         return;
     };
-    let read = || -> zbus::Result<u32> {
-        let reply = conn.call_method(Some(PORTAL), "/org/freedesktop/portal/desktop", Some(SETTINGS), "ReadOne", &(APPEARANCE, "color-scheme"))?;
+    let read = |method: &str| -> zbus::Result<u32> {
+        let reply = conn.call_method(Some(PORTAL), "/org/freedesktop/portal/desktop", Some(SETTINGS), method, &(APPEARANCE, "color-scheme"))?;
         let body = reply.body();
-        let value = body.deserialize::<zbus::zvariant::Value>()?;
-        match value {
-            zbus::zvariant::Value::U32(v) => Ok(v),
-            _ => Ok(0),
-        }
+        Ok(scheme(&body.deserialize::<Value>()?))
     };
-    match read() {
+    match read("ReadOne").or_else(|_| read("Read")) {
         Ok(v) => store(v),
         Err(e) => log::info!("colour scheme: can't read the system setting: {e}"),
     }
@@ -192,12 +220,9 @@ fn watch_system_dark(dark: Arc<AtomicU8>) {
         for msg in zbus::blocking::MessageIterator::for_match_rule(rule, &conn, Some(8))? {
             let msg = msg?;
             let body = msg.body();
-            let Ok((namespace, key, value)) = body.deserialize::<(String, String, zbus::zvariant::Value<'_>)>() else { continue };
-            if namespace == APPEARANCE
-                && key == "color-scheme"
-                && let zbus::zvariant::Value::U32(v) = value
-            {
-                store(v);
+            let Ok((namespace, key, value)) = body.deserialize::<(String, String, Value<'_>)>() else { continue };
+            if namespace == APPEARANCE && key == "color-scheme" {
+                store(scheme(&value));
             }
         }
         Ok(())
@@ -333,24 +358,65 @@ fn save_filters<'a>(exts: &'a [&'a str]) -> Vec<(&'static str, &'a [&'a str])> {
     }
 }
 
+/// The folder to start the next dialog in once `path` was picked: the file's folder, or the folder
+/// picked itself.
+pub(crate) fn folder_to_remember(path: &Path, is_folder: bool) -> Option<PathBuf> {
+    let folder = if is_folder { Some(path) } else { path.parent() };
+    folder.filter(|f| !f.as_os_str().is_empty()).map(Path::to_path_buf)
+}
+
+/// The remembered folder, unless it is gone since: then the system's own choice.
+pub(crate) fn start_folder(last: Option<PathBuf>) -> Option<PathBuf> {
+    last.filter(|f| f.is_dir())
+}
+
+impl Desktop {
+    /// A dialog that starts in the last folder used. The Linux portal does not remember it between
+    /// dialogs as macOS and Windows do.
+    fn dialog_in_last_folder(&self, title: &str) -> rfd::AsyncFileDialog {
+        let dialog = dialog(title);
+        match start_folder(self.last_folder.lock().ok().and_then(|l| l.clone())) {
+            Some(folder) => dialog.set_directory(folder),
+            None => dialog,
+        }
+    }
+}
+
+/// `pick`, with the folder of what it picks kept in `last` for the next dialog.
+pub(crate) fn remembering(last: Arc<Mutex<Option<PathBuf>>>, pick: DialogFuture, is_folder: bool) -> DialogFuture {
+    Box::pin(async move {
+        let path = pick.await?;
+        if let (Some(folder), Ok(mut last)) = (folder_to_remember(&path, is_folder), last.lock()) {
+            *last = Some(folder);
+        }
+        Some(path)
+    })
+}
+
 impl Services for Desktop {
     fn pick_open(&mut self, title: &str, exts: &[&str]) -> DialogFuture {
-        picked(dialog(title).add_filter("Supported files", exts).pick_file())
+        let pick = picked(self.dialog_in_last_folder(title).add_filter("Supported files", exts).pick_file());
+        remembering(self.last_folder.clone(), pick, false)
     }
     fn pick_save(&mut self, title: &str, name: &str, exts: &[&str]) -> DialogFuture {
-        let mut dialog = dialog(title).set_file_name(name);
+        let mut dialog = self.dialog_in_last_folder(title).set_file_name(name);
         for (label, extensions) in save_filters(exts) {
             dialog = dialog.add_filter(label, extensions);
         }
-        picked(dialog.save_file())
+        let pick = picked(dialog.save_file());
+        remembering(self.last_folder.clone(), pick, false)
     }
     fn pick_folder(&mut self, title: &str) -> DialogFuture {
-        picked(dialog(title).pick_folder())
+        let pick = picked(self.dialog_in_last_folder(title).pick_folder());
+        remembering(self.last_folder.clone(), pick, true)
     }
     fn clipboard_set_text(&mut self, s: &str) {
-        if let Some(c) = self.clipboard.as_mut() {
-            let _ = c.set_text(s.to_string());
+        if let Some(ctx) = &self.egui_ctx {
+            ctx.copy_text(s.to_string());
         }
+    }
+    fn set_egui_context(&mut self, ctx: &egui::Context) {
+        self.egui_ctx = Some(ctx.clone());
     }
     fn clipboard_get_text(&mut self) -> Option<String> {
         read_clipboard(self.clipboard.as_mut()?, |c| c.get_text().ok())
