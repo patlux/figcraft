@@ -116,7 +116,11 @@ impl Smoke {
                 std::fs::write(self.dir.join("refresh-status.json"), status.to_string()).map_err(|e| e.to_string())?;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                 self.stage = 3;
-                self.capture_after = Instant::now() + Duration::from_secs(2);
+                {
+                    // The first visible frame after a refresh made while minimised has no canvas texture yet: the
+                    // renderer's result arrives a few frames later, so give it time before the capture.
+                    self.capture_after = Instant::now() + Duration::from_secs(6);
+                }
             }
             4 => {
                 self.change_external("SYNTHETIC — visible refresh", "#147C57")?;
