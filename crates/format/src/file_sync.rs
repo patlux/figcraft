@@ -145,6 +145,19 @@ mod native {
             }
         }
 
+        /// Replace the file whatever it holds now, for a caller that explicitly asked to
+        /// overwrite (local fork: `file.save {overwrite: true}`). Still under the writer lock.
+        pub fn overwrite(&self, bytes: &[u8]) -> io::Result<Baseline> {
+            if bytes.len() as u64 > MAX_FILE_BYTES {
+                return Err(io::Error::other("file exceeds 512 MiB"));
+            }
+            if target(&self.requested)? != self.path {
+                return Err(conflict("destination path changed"));
+            }
+            crate::write_file_atomic(&self.path, bytes)?;
+            Ok(Baseline::of(self.path.clone(), bytes))
+        }
+
         pub fn replace(&self, expected: Option<&Baseline>, bytes: &[u8]) -> io::Result<Baseline> {
             if bytes.len() as u64 > MAX_FILE_BYTES {
                 return Err(io::Error::other("file exceeds 512 MiB"));
