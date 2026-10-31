@@ -1,6 +1,6 @@
 # Local agent workflow audit
 
-Date: 2026-10-31. Scope: the slim local fork, merged with upstream `1c5c9e0` (0.12.1) and with carried upstream PRs, and the paired Python bridge and agent skill.
+Date: 2026-10-31. Scope: the slim local fork, merged with upstream `0abbe44` (0.13.1) and with carried upstream PRs, and the paired Python bridge and agent skill.
 The fork's manifest, sync script and runbook are in `/Users/patwoz/dev/Personal/infra/nix/hosts/darwin/mbpromax/figcraft/` (`fork-manifest.toml`, `sync-upstream.sh`, `SYNC.md`).
 This audit does not claim installed synchronization or Figma parity.
 
@@ -65,7 +65,8 @@ it needs a token shared by the LaunchAgent, the bridge and the CLI.
 
 ## Verification summary
 
-- Upstream `1c5c9e0` (2026-10-31): **4,997 workspace tests passed, zero failed, twelve ignored**, serial test execution with Rust 1.99.1.
+- Upstream `0abbe44` (2026-10-31): **5,023 workspace tests passed, zero failed, twelve ignored**, serial test execution with Rust 1.99.1.
+- Upstream `1c5c9e0` (2026-10-31): 4,997 workspace tests passed, zero failed, twelve ignored.
   Formatting, workspace clippy with warnings denied, layering, assets, parity and the WASM check pass.
 - Upstream `90054a8` (2026-10-28): 3,906 workspace tests passed, zero failed, ten ignored.
 - Upstream `63d9268` (2026-10-26): 3,763 workspace tests passed, zero failed, nine ignored, serial test execution.
@@ -106,6 +107,8 @@ inner shadows honor their blend mode on shapes, frames and groups; SVG vector an
 still use Normal. Import/export: tracked `.figcraft` saves refuse external changes (byte baselines,
 participating-writer locks; explicit refresh, no file watching). Ranked estimates are unchanged by
 the fork.
+
+- **2026-10-31** · Upstream 0.13.1 (M0.9, local fork): merged `0abbe44` over `481f194`, 19 upstream commits and no conflicts. Upstream brings board connector ends that dock on any part of an object (Cmd/Ctrl), a Dash cap for dash and custom strokes, plugin panels that keep what was typed in their fields, library analytics that name each style's and variable's uses, a controller menu that speaks PlayStation and Switch, an update dialog that shows check results, and a `parse_css` that rejects empty arguments. Its craft-libs rev moves to `e11f9d9`, which makes `craft-menu` parse with Cargo 1.98 again; the fork's build stays on 1.99.1. Two process changes came out of the last three merges and are in `SYNC.md`: local clippy is skipped (the fork's CI runs `cargo xtask ci` on every push, and a local clippy run costs a separate ~14-minute compile), gate runs set `MBX_REMOTE_MODE=read-only` (this machine's mbx cannot upload to the 1.27-era cache server, and every rejected upload retries for two minutes), and the release script's final check is now the two pinned packages' `nix build` (seconds) with `FULL_CHECK=1` for the repository-wide `nix-check`, which passes again since another session regenerated the host dashboards (`11ab6c57`). Formatting and clippy pass; workspace 5,023 passed, zero failed, twelve ignored; layering, assets, parity and the WASM check pass. Installed as `481f194` (0.13.1) after closing the app; Pi sessions need a `/reload`.
 
 - **2026-10-31** · Upstream 0.12.1 (M0.9, local fork): merged `1c5c9e0` over `7127eda`, 616 upstream commits and 20 conflicted files (19 of them resolved by rerere and only needed staging). Upstream brings plugin API 5 and 6 (a widget opens its plugin's panel, widgets draw lines and SVG pictures, hover styles, a slider control, images in plugin panels), a team directory on `figcraft-server` whose files open by link without a token, colour variables calculated from others, faded or mixed per mode, board connectors with path handles and ends dragged onto a side, 16 more board shapes, stamps that stick to their objects, board votes that name their voters, spreadsheet cells pasted as a table, the CLI on clap with generated completions and man pages, a per-request control timeout up to ten minutes, `figcraft-cli connect publish`, a Bosnian catalog, and a long list of render, import, server and memory hardening. The fork's ports: `--autosave` on the clap MCP command, `load_tracked` for `file.open` and `file.revert` (with upstream's read-cap refusals kept in front of it), and the image picker that follows an outside click onto another image (#618) no longer treating that press as one outside its popover. Upstream's `edit.duplicate {map: true}` replaces the fork's `copy_in_file_mapped`, and the fork's `inspect_fields_tests` golden compares the tree without the fork's `target` and `lastExternalRecovery`. A new upstream golden test for `document.inspect` needed that adjustment; two fork tests now pass `map: true`. Building needs Rust 1.99: craft-libs' manifests at upstream's rev refuse `default-features` overrides in workspace dependencies in earlier cargo, so `build.sh`'s toolchain moved from 1.98.1 to 1.99.1. Formatting, workspace clippy (warnings denied), layering, assets, parity and the WASM check pass; workspace 4,997 passed, zero failed, twelve ignored; the native smoke passes; `nix-check` still fails only on the stale generated Grafana dashboards. Installed as `7127eda` (0.12.1) after closing the app; Pi sessions need a `/reload`.
 
