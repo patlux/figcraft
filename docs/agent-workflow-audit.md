@@ -1,6 +1,6 @@
 # Local agent workflow audit
 
-Date: 2026-10-31. Scope: the slim local fork, merged with upstream `0abbe44` (0.13.1) and with carried upstream PRs, and the paired Python bridge and agent skill.
+Date: 2026-10-31. Scope: the slim local fork, merged with upstream `e04c5d2` (0.13.1 and its fixes) and with carried upstream PRs, and the paired Python bridge and agent skill.
 The fork's manifest, sync script and runbook are in `/Users/patwoz/dev/Personal/infra/nix/hosts/darwin/mbpromax/figcraft/` (`fork-manifest.toml`, `sync-upstream.sh`, `SYNC.md`).
 This audit does not claim installed synchronization or Figma parity.
 
@@ -65,7 +65,8 @@ it needs a token shared by the LaunchAgent, the bridge and the CLI.
 
 ## Verification summary
 
-- Upstream `0abbe44` (2026-10-31): **5,023 workspace tests passed, zero failed, twelve ignored**, serial test execution with Rust 1.99.1.
+- Upstream `e04c5d2` (2026-10-31): **5,032 workspace tests passed, zero failed, twelve ignored**, serial test execution with Rust 1.99.1.
+- Upstream `0abbe44` (2026-10-31): 5,023 workspace tests passed, zero failed, twelve ignored.
 - Upstream `1c5c9e0` (2026-10-31): 4,997 workspace tests passed, zero failed, twelve ignored.
   Formatting, workspace clippy with warnings denied, layering, assets, parity and the WASM check pass.
 - Upstream `90054a8` (2026-10-28): 3,906 workspace tests passed, zero failed, ten ignored.
@@ -107,6 +108,8 @@ inner shadows honor their blend mode on shapes, frames and groups; SVG vector an
 still use Normal. Import/export: tracked `.figcraft` saves refuse external changes (byte baselines,
 participating-writer locks; explicit refresh, no file watching). Ranked estimates are unchanged by
 the fork.
+
+- **2026-10-31** · Upstream 0.13.1 fixes (M0.9, local fork): merged `e04c5d2` over `3461397`, eight upstream fixes and no conflicts. Unique custom properties per variable in CSS export, paint opacity on gradient stops, escaped font-family strings, finite large numbers in number fields and code export, relative line-height and letter-spacing edits that add to the current value, `comment.parse_link` rejecting `+`, and `crates/text` on craft-font-catalog for Unix. The first run with the documented fast path took **~23 minutes** end to end (merge and push 1 min, tests 14 min incremental, release build and artifacts 6 min, activation 1 min) instead of ~80: local clippy skipped (the fork's CI runs it), `MBX_REMOTE_MODE=read-only` for the gate run, and the release script's targeted `nix build` of both pins. That check needed one fix: the package files are `callPackage` functions, not flakes, so it now builds them with the infra flake's locked nixpkgs the way `official_package` does. Workspace 5,032 passed, zero failed, twelve ignored. Installed as `3461397`; Pi sessions need a `/reload`.
 
 - **2026-10-31** · Upstream 0.13.1 (M0.9, local fork): merged `0abbe44` over `481f194`, 19 upstream commits and no conflicts. Upstream brings board connector ends that dock on any part of an object (Cmd/Ctrl), a Dash cap for dash and custom strokes, plugin panels that keep what was typed in their fields, library analytics that name each style's and variable's uses, a controller menu that speaks PlayStation and Switch, an update dialog that shows check results, and a `parse_css` that rejects empty arguments. Its craft-libs rev moves to `e11f9d9`, which makes `craft-menu` parse with Cargo 1.98 again; the fork's build stays on 1.99.1. Two process changes came out of the last three merges and are in `SYNC.md`: local clippy is skipped (the fork's CI runs `cargo xtask ci` on every push, and a local clippy run costs a separate ~14-minute compile), gate runs set `MBX_REMOTE_MODE=read-only` (this machine's mbx cannot upload to the 1.27-era cache server, and every rejected upload retries for two minutes), and the release script's final check is now the two pinned packages' `nix build` (seconds) with `FULL_CHECK=1` for the repository-wide `nix-check`, which passes again since another session regenerated the host dashboards (`11ab6c57`). Formatting and clippy pass; workspace 5,023 passed, zero failed, twelve ignored; layering, assets, parity and the WASM check pass. Installed as `481f194` (0.13.1) after closing the app; Pi sessions need a `/reload`.
 
