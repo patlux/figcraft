@@ -48,7 +48,7 @@ fn duplicate_maps_every_copy() {
     let mut c = Client::new();
     let r = c.ok("create_tree", json!({"tree": card()}));
     let card_id = r["id"].clone();
-    let d = c.run("edit.duplicate", json!({"ids": [card_id]}));
+    let d = c.run("edit.duplicate", json!({"ids": [card_id], "map": true}));
     let label = r["ids"]["Card/Button/Label"].as_u64().unwrap().to_string();
     let copy = d["map"][&label].clone();
     assert!(copy.is_number() && copy != r["ids"]["Card/Button/Label"], "{d}");

@@ -1,11 +1,14 @@
 //! Text menu and text editing commands.
 
-use figcraft_doc::*;
+use figcraft_doc::{
+    LetterSpacing, LineHeight, ListStyle, NodeId, NodeKind, TextAlignH, TextAutoResize, TextCase, TextData, TextDecoration, TextPath, TextStyle,
+    VariableId,
+};
 use serde_json::{Map, Value, json};
 
 use super::props::{styled_name, weight_name};
 use super::{CommandSpec, ok};
-use crate::params::*;
+use crate::params::{boolean, get, id, num, req_id, req_num, req_string, req_targets, string, targets};
 use crate::{Result, Session, bad, spec, textedit};
 
 fn finite(v: f64) -> f64 {
@@ -276,13 +279,19 @@ pub fn specs() -> Vec<CommandSpec> {
                 .ok_or_else(|| bad("text.decoration", "`decoration`: none|underline|strikethrough"))?;
             style(s, p, |st| st.decoration = d)
         }),
-        spec!("text.listStyle", "List style", "{style: none|bulleted|numbered, ids?}  while editing: the selected paragraphs", true, |s, p| {
-            let l: ListStyle = get(p, "style")
-                .or_else(|| get(p, "list"))
-                .and_then(super::props::enum_of)
-                .ok_or_else(|| bad("text.listStyle", "`style`: none|bulleted|numbered"))?;
-            set_list(s, p, l, false)
-        }),
+        spec!(
+            "text.listStyle",
+            "List style",
+            "{style | list: none|bulleted|numbered, ids?}  while editing: the selected paragraphs",
+            true,
+            |s, p| {
+                let l: ListStyle = get(p, "style")
+                    .or_else(|| get(p, "list"))
+                    .and_then(super::props::enum_of)
+                    .ok_or_else(|| bad("text.listStyle", "`style`: none|bulleted|numbered"))?;
+                set_list(s, p, l, false)
+            }
+        ),
         spec!("text.paragraphIndent", "Paragraph indent", "{indent (px), ids?}", true, |s, p| {
             let v = finite(req_num("text.paragraphIndent", p, "indent")?).clamp(0.0, 10_000.0);
             para(s, p, |t| t.paragraph_indent = v)
@@ -358,8 +367,8 @@ pub fn specs() -> Vec<CommandSpec> {
         ),
         spec!(
             "text.preview",
-            "Preview text change",
-            "{command: style.apply|library.applyStyle|text.setVariations|text.style, params}  shows what the command would do on the canvas without an undo step (a hovered font family or style, text style or named instance, a dragged axis slider), in place of an earlier preview; text.endPreview or any other command ends it, so running the command for real commits it as one undo step",
+            "Preview a change",
+            "{command: style.apply|library.applyStyle|text.setVariations|text.style|node.set|fill.set|stroke.set|selection.setPaint|style.update, params}  shows what the command would do on the canvas without an undo step (a hovered font family or style, text style, named instance, blend mode, or a dragged axis slider), in place of an earlier preview; text.endPreview or any other command ends it, so running the command for real commits it as one undo step",
             false,
             |s, p| {
                 let c = req_string("text.preview", p, "command")?;
@@ -371,7 +380,7 @@ pub fn specs() -> Vec<CommandSpec> {
         spec!("text.endPreview", "End text preview", "{}  puts the document back as it was before text.preview → {ended}", false, |s, _| {
             Ok(json!({"ended": crate::textpreview::end(s)}))
         }),
-        spec!("text.set", "Set text", "{id?, characters}", true, |s, p| {
+        spec!("text.set", "Set text", "{id?, characters | text}", true, |s, p| {
             let c = string(p, "characters").or_else(|| string(p, "text")).ok_or_else(|| bad("text.set", "`characters` required"))?;
             let ids = req_targets("text.set", s, p)?;
             let doc = s.doc_mut()?;
@@ -387,7 +396,7 @@ pub fn specs() -> Vec<CommandSpec> {
         spec!(
             "text.style",
             "Style text range",
-            "{id?, start?, end?, fontFamily?, fontStyle?, fontWeight?, fontSize?, lineHeight?, letterSpacing?, textDecoration?, textCase?, hyperlink?, textFills?}",
+            "{id?, start?, end?, fontFamily?, fontStyle?, fontWeight?, fontVariations? | variationSettings?, fontSize?, lineHeight?, letterSpacing?, textDecoration?, textDecorationStyle?, textDecorationThickness?, textDecorationOffset?, textDecorationSkipInk?, textDecorationColor?, textCase?, hyperlink?, textFills?}",
             true,
             |s, p| {
                 let ids = req_targets("text.style", s, p)?;

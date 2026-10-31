@@ -1,4 +1,6 @@
-use super::*;
+use super::{
+    FigApp, PendingAck, Value, cursors, dev_compare, home_recents, import_report, json, live, missing_fonts, online, present, tabs, windows,
+};
 
 impl FigApp {
     /// Queue raw input injected through the control channel for the window drawing next, tagged
@@ -105,6 +107,7 @@ impl FigApp {
         state["pendingOpens"] = json!(self.ui.pending_opens.len());
         state["missingFonts"] = json!(self.ui.missing_fonts.as_ref().map(missing_fonts::Shown::inspect));
         state["presentTabs"] = tabs::present_tabs_inspect(self);
+        state["frameTimes"] = self.frame_stats.times();
         state
     }
 }

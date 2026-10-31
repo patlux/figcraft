@@ -30,7 +30,7 @@ impl Baseline {
 
 #[cfg(not(target_arch = "wasm32"))]
 mod native {
-    use super::*;
+    use super::{Baseline, MAX_FILE_BYTES, PathBuf, io};
     use std::{
         fs::{File, OpenOptions},
         io::Read,

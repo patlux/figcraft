@@ -1,4 +1,7 @@
-use super::*;
+use super::{
+    AUTO_SAVE_RETRY_SECS, AUTO_SAVE_SECS, AUTOSAVE_SECS, Arc, DialogFuture, FigApp, OPEN_EXTENSIONS, OsStr, Path, PathBuf, PendingDialog, PickFuture,
+    Picked, Poll, RepaintWaker, Services, TaskContext, Value, Waker, dialogs, i18n, json, repaint_in, windows,
+};
 
 impl FigApp {
     pub fn save_as_dialog(&mut self) {
@@ -72,7 +75,7 @@ impl FigApp {
         let exts: &[&str] = if place {
             &["png", "jpg", "jpeg", "webp", "gif", "tif", "tiff"]
         } else {
-            &["svg", "png", "jpg", "jpeg", "webp", "gif", "tif", "tiff", "figcraft", "fig", "sketch"]
+            &["penpot", "svg", "png", "jpg", "jpeg", "webp", "gif", "tif", "tiff", "figcraft", "fig", "jam", "sketch"]
         };
         let title = if place { i18n::tr("Place image") } else { i18n::tr("Import") };
         self.pick_file(title, exts, true, |app, file| {
@@ -83,7 +86,7 @@ impl FigApp {
     /// Pick a file to open or import; `done` gets it as `file.open` and `file.import` take it (a
     /// path, or the name and contents where the platform has no paths). `pin`: as
     /// [`FigApp::pick_open`]'s file in front.
-    fn pick_file(&mut self, title: &str, exts: &[&str], pin: bool, done: impl FnOnce(&mut FigApp, Value) + 'static) {
+    pub(crate) fn pick_file(&mut self, title: &str, exts: &[&str], pin: bool, done: impl FnOnce(&mut FigApp, Value) + 'static) {
         self.start_pick(
             |services| -> PickFuture {
                 match services.pick_open_contents(title, exts) {
@@ -256,7 +259,7 @@ impl FigApp {
                             let bytes = file.encode();
                             (file, bytes)
                         };
-                        match std::thread::Builder::new().name("figcraft-save".into()).spawn(encode) {
+                        match std::thread::Builder::new().name("figcraft-save".into()).stack_size(figcraft_render::RENDER_STACK).spawn(encode) {
                             Ok(h) => self.ui.auto_saving.push((uid, h)),
                             Err(e) => {
                                 failed.get_or_insert(e.to_string());

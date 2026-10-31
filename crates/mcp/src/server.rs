@@ -41,7 +41,11 @@ layout in one call with create_tree. Verify your work: outline lists the layer t
 auto layout), lint_layout reports text that doesn't fit, layers cut off or drawn outside their frame and \
 overlapping text, inspect_document / get_node return layers as JSON (check sizes, fills, layout, overrides), \
 and screenshot returns a PNG of the page or of given layers to look at. undo/redo step through history. \
-Resources: figcraft://document, figcraft://node/{id}, figcraft://command/{id}. prompts/list has workflows. \
+Comments: comment.list returns threads (text, anchor node id, frame, page, x/y, replies); fix open ones, \
+reply with what changed, then resolve (a reply reopens a thread). To react to new feedback, call \
+wait_for_changes {after, timeoutMs} and pass the returned cursor back. \
+Resources: figcraft://document, figcraft://node/{id}, figcraft://command/{id}, figcraft://comments. \
+prompts/list has workflows, including fix_comments. \
 File synchronization: the app does not watch files. Write an open file externally only while its \
 document is saved (dirty false), then call refresh_file with a fresh target; a save over an external change \
 is refused, and conflicts keep both sides. Use file_status and require savedAndCurrent for point-in-time \
@@ -60,6 +64,46 @@ pub struct Server {
     autosave: bool,
     /// The autosave note about a document without a file was sent (it is sent once).
     autosave_warned: bool,
+    /// The client's name from `initialize` (`clientInfo.title`, else `.name`; empty until then):
+    /// every command runs as this AI agent, so its comments are signed with it, not the user's name.
+    agent: String,
+}
+
+/// The backend as the MCP client's AI agent: `engine.execute` carries its name (`agent`).
+struct AsAgent<'a> {
+    inner: &'a mut dyn Backend,
+    agent: &'a str,
+}
+
+impl Backend for AsAgent<'_> {
+    fn call(&mut self, method: &str, mut params: Value) -> Result<Value, String> {
+        if method == "engine.execute"
+            && let Some(p) = params.as_object_mut()
+        {
+            p.insert("agent".into(), json!(self.agent));
+        }
+        self.inner.call(method, params)
+    }
+
+    fn has_ui(&self) -> bool {
+        self.inner.has_ui()
+    }
+
+    fn describe(&self) -> String {
+        self.inner.describe()
+    }
+
+    fn render_png(&mut self, ids: &[u64], scale: f64) -> Result<Vec<u8>, String> {
+        self.inner.render_png(ids, scale)
+    }
+
+    fn screenshot_png(&mut self) -> Result<Vec<u8>, String> {
+        self.inner.screenshot_png()
+    }
+
+    fn window_png(&mut self, window: u64) -> Result<Vec<u8>, String> {
+        self.inner.window_png(window)
+    }
 }
 
 fn response(id: Value, result: Value) -> Value {
@@ -70,13 +114,20 @@ fn error(id: Value, code: i64, message: impl Into<String>) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message.into()}})
 }
 
+/// The name an `initialize` request gives its client (`clientInfo.title`, else `.name`; empty
+/// without one). The engine keeps 64 characters of it; this only bounds what each call carries.
+fn client_name(params: &Value) -> String {
+    let name = |k: &str| params.get("clientInfo").and_then(|i| i.get(k)).and_then(Value::as_str).map(str::trim).filter(|n| !n.is_empty());
+    name("title").or_else(|| name("name")).unwrap_or_default().chars().take(256).collect()
+}
+
 fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
     payload.downcast_ref::<&str>().map(ToString::to_string).or_else(|| payload.downcast_ref::<String>().cloned()).unwrap_or_else(|| "panic".into())
 }
 
 impl Server {
     pub fn new(backend: Box<dyn Backend>) -> Self {
-        Self { backend, initialized: false, roots: None, autosave: false, autosave_warned: false }
+        Self { backend, initialized: false, roots: None, autosave: false, autosave_warned: false, agent: String::new() }
     }
 
     /// Save the document to its file after every tool call that changes it, so the file on disk
@@ -233,9 +284,15 @@ impl Server {
         }
     }
 
+    /// The backend, acting as the client's agent.
+    fn as_agent(&mut self) -> AsAgent<'_> {
+        AsAgent { inner: self.backend.as_mut(), agent: &self.agent }
+    }
+
     fn request(&mut self, method: &str, params: &Value) -> Result<Value, (i64, String)> {
         match method {
             "initialize" => {
+                self.agent = client_name(params);
                 let asked = params.get("protocolVersion").and_then(Value::as_str).unwrap_or(PROTOCOL_VERSION);
                 let version = if SUPPORTED_VERSIONS.contains(&asked) { asked } else { PROTOCOL_VERSION };
                 Ok(json!({
@@ -265,7 +322,7 @@ impl Server {
                 if !crate::tools::TOOL_NAMES.contains(&name) {
                     return Err((INVALID_PARAMS, format!("unknown tool `{name}`")));
                 }
-                let mut result = call_tool(self.backend.as_mut(), name, &args);
+                let mut result = call_tool(&mut self.as_agent(), name, &args);
                 if let Some(note) = self.autosave_after(name, result.is_error()) {
                     result.note(note);
                 }
@@ -275,7 +332,7 @@ impl Server {
             "resources/templates/list" => Ok(resources::templates()),
             "resources/read" => {
                 let uri = params.get("uri").and_then(Value::as_str).ok_or((INVALID_PARAMS, "missing `uri` (a string)".to_string()))?;
-                let v = resources::read(self.backend.as_mut(), uri).map_err(|e| match e {
+                let v = resources::read(&mut self.as_agent(), uri).map_err(|e| match e {
                     resources::ReadError::NotFound(uri) => (RESOURCE_NOT_FOUND, format!("resource not found: {uri}")),
                     resources::ReadError::Backend(why) => (INTERNAL_ERROR, why),
                 })?;

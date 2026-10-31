@@ -16,7 +16,7 @@
 //! can't put `javascript:` into generated code.
 
 use figcraft_color::PaintKind;
-use figcraft_doc::*;
+use figcraft_doc::{Document, Node, NodeId, NodeKind};
 
 /// The id of the built-in Accessibility annotation category.
 const A11Y: &str = "accessibility";
@@ -129,7 +129,7 @@ pub fn of(doc: &Document, n: &Node) -> Semantics {
         for action in clicks.flat_map(|i| i.actions.iter()) {
             use figcraft_doc::proto::Action;
             let link = match action {
-                Action::OpenUrl { url } => safe_url(url),
+                Action::OpenUrl { url, .. } => safe_url(url),
                 Action::Navigate { dest, .. } | Action::ScrollTo { dest, .. } => anchor_for(doc, *dest).map(|a| format!("#{a}")),
                 _ => None,
             };

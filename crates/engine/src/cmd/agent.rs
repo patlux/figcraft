@@ -4,11 +4,11 @@
 
 use std::collections::BTreeMap;
 
-use figcraft_doc::*;
+use figcraft_doc::{Document, LayoutMode, Node, NodeId, NodeKind, TextAutoResize, TextData};
 use serde_json::{Map, Value, json};
 
 use super::CommandSpec;
-use crate::params::*;
+use crate::params::{get, id_of, num, string};
 use crate::{Result, Session, bad, spec};
 
 /// Deepest tree `node.createTree` builds, and the most layers it creates in one call.

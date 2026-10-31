@@ -1,4 +1,7 @@
-use super::*;
+use super::{
+    Done, FigApp, LeftTab, MobilePanel, NodeId, PANEL_DEFAULT, RightTab, Value, comments, dev_compare, dialogs, home, i18n, import_report, json,
+    layers, live, menus, missing_fonts, plugins_ui, present, tabs, updates_ui, versions,
+};
 
 impl FigApp {
     /// Dismiss the composer after a successful switch away from the Comment tool.
@@ -57,7 +60,7 @@ impl FigApp {
     }
 
     /// Show an error as a toast, kept as the last error.
-    pub(crate) fn show_error(&mut self, msg: String) {
+    pub fn show_error(&mut self, msg: String) {
         self.toast(msg.clone());
         self.ui.last_error = Some(msg);
     }
@@ -123,6 +126,7 @@ impl FigApp {
                 }
                 "dialog.preferences" => self.ui.preferences = true,
                 "dialog.missingFonts" => missing_fonts::request(self),
+                "dialog.createFromColor" => crate::sampled_color::request(self, &r.data),
                 "panel.shortcuts" => self.ui.shortcuts_panel = !self.ui.shortcuts_panel,
                 "palette.actions" => menus::toggle_palette(&mut self.ui),
                 "panel.design" if self.session.doc().is_ok_and(figcraft_engine::board::is_board) => self.ui.board_panel = !self.ui.board_panel,
@@ -223,6 +227,16 @@ impl FigApp {
                 "layers.collapseAll" => layers::collapse_all(self),
                 "contextMenu" => self.ui.key_menu = true,
                 "selectArea" => self.start_key_box(),
+                "image.crop" => {
+                    // Crop mode takes the canvas: an open colour picker would edit the same paint.
+                    self.ui.picker = None;
+                    self.ui.crop = r
+                        .data
+                        .get("id")
+                        .and_then(figcraft_engine::params::id_of)
+                        .zip(r.data.get("index").and_then(Value::as_u64))
+                        .map(|(id, i)| (id, i as usize));
+                }
                 "canvas.renameLabel" => {
                     self.ui.rename_label = r.data.get("id").and_then(figcraft_engine::params::id_of).map(|id| layers::Rename { id, start: true });
                 }

@@ -1,5 +1,5 @@
 use super::css::{Tokens, css_decls};
-use super::*;
+use super::{CodeLang, Ctx, Document, LayoutMode, Node, NodeId, NodeKind, Param, Sizing, indent, num, with_v_if};
 
 // ------------------------------------------------------------------ HTML and React markup
 
@@ -135,6 +135,32 @@ pub(crate) struct Markup<'c, 'a> {
     targets: Option<Vec<NodeId>>,
 }
 
+/// How `n` sits in its parent: in the flex flow, or placed at its position.
+fn placement_decls(n: &Node, parent: Option<&Node>, root: bool, in_flow: bool) -> String {
+    let mut decls = String::new();
+    if root {
+        decls.push_str("position: relative;\n");
+    } else if in_flow {
+        let vertical = parent.and_then(|p| p.layout.as_ref()).is_some_and(|l| l.mode == LayoutMode::Vertical);
+        let (main, cross) =
+            if vertical { (n.child_layout.sizing_v, n.child_layout.sizing_h) } else { (n.child_layout.sizing_h, n.child_layout.sizing_v) };
+        if main == Sizing::Fill {
+            decls.push_str("flex: 1 1 0;\n");
+        }
+        if cross == Sizing::Fill {
+            decls.push_str("align-self: stretch;\n");
+        }
+    } else {
+        let c = n.transform.as_coeffs();
+        decls.push_str(&format!("position: absolute;\nleft: {}px;\ntop: {}px;\n", num(c[4]), num(c[5])));
+        let rot = figcraft_geom::rotation_degrees(n.transform);
+        if rot.abs() > 0.01 {
+            decls.push_str(&format!("transform: rotate({}deg);\ntransform-origin: 0 0;\n", num(-rot)));
+        }
+    }
+    decls
+}
+
 impl<'c, 'a> Markup<'c, 'a> {
     pub fn new(ctx: &'c Ctx<'a>, lang: CodeLang) -> Self {
         Markup {
@@ -208,6 +234,129 @@ impl<'c, 'a> Markup<'c, 'a> {
         self.rules.push((path.to_string(), class.to_string(), decls));
     }
 
+    /// An instance as a call to its component (see `element`); true when it was written. `host` is
+    /// the layer's semantics and anchor attribute (local fork, #748): a wrapper carries them.
+    #[allow(clippy::too_many_arguments)]
+    fn instance_call(
+        &mut self,
+        n: &Node,
+        depth: usize,
+        path: &str,
+        class: &str,
+        decls: &str,
+        root: bool,
+        (sem, id_attr): (&crate::semantics::Semantics, &str),
+    ) -> bool {
+        let pad = self.pad(depth);
+        let attr = if self.lang == CodeLang::React { "className" } else { "class" };
+        let connected = self.inline && crate::code_connect::link(self.ctx.doc, n.id, CodeLang::React).is_some();
+        if self.code() && (!self.inline || connected) && !root && matches!(n.kind, NodeKind::Instance { .. }) {
+            let at = depth + usize::from(!decls.is_empty());
+            let run = if self.lang == CodeLang::Leptos { ".run()" } else { "" };
+            let (inner, css) = match self.ctx.param(n, "mainComponent") {
+                Some(p) if self.lang == CodeLang::Vue => (Some(format!("{}<component :is=\"{}\" />\n", self.pad(at), self.ident(p))), String::new()),
+                Some(p) => (Some(format!("{}{{{}{run}}}\n", self.pad(at), self.ident(p))), String::new()),
+                None => self.ctx.call(n, self.lang, at).map_or((None, String::new()), |(code, css)| (Some(code), css)),
+            };
+            self.styles.push_str(&css);
+            if let Some(inner) = inner {
+                // A Vue guard set by `node` rides on the call when there is no wrapper.
+                let guard = if self.lang == CodeLang::Vue { self.v_if.take() } else { None };
+                let host = *sem != crate::semantics::Semantics::default() || !id_attr.is_empty();
+                if decls.is_empty() && !host {
+                    self.markup.push_str(&with_v_if(&inner, guard.as_deref()));
+                } else {
+                    let guard = guard.map(|g| format!(" v-if=\"{g}\"")).unwrap_or_default();
+                    let tag = if sem.tag.is_some() { sem.element(false) } else { "div" };
+                    let attrs = format!("{id_attr}{}", self.sem_attrs(sem));
+                    self.markup.push_str(&format!("{pad}<{tag} {attr}=\"{class}\"{guard}{attrs}>\n{inner}{pad}</{tag}>\n"));
+                    let mut d = String::from(if self.fluid { "" } else { reset_for(sem.tag, false) });
+                    d.push_str(decls);
+                    self.rule(path, class, d);
+                }
+                return true;
+            }
+        }
+        false
+    }
+
+    fn text_body(&self, n: &Node, t: &figcraft_doc::TextData) -> String {
+        match (self.ctx.param(n, "characters").filter(|_| self.code()), self.lang) {
+            (Some(p), CodeLang::Leptos) => format!("{{{}.clone()}}", self.ident(p)),
+            (Some(p), CodeLang::Vue) => format!("{{{{ {} }}}}", self.ident(p)),
+            (Some(p), _) => format!("{{{}}}", p.ident),
+            (None, CodeLang::React) => jsx_text(&t.characters),
+            // `view!` takes text as string literals and void elements self-closed.
+            (None, CodeLang::Leptos) => {
+                t.characters.chars().take(10_000).collect::<String>().lines().map(|l| format!("{l:?}")).collect::<Vec<_>>().join("<br/>")
+            }
+            // A Vue template reads `{{ }}` as interpolation, so braces are escaped.
+            (None, CodeLang::Vue) => html_escape(&t.characters).replace('{', "&#123;").replace('}', "&#125;"),
+            (None, _) => html_escape(&t.characters),
+        }
+    }
+
+    /// The element semantics (local fork, upstream PR #748): a layer's kind, link or mark decides
+    /// its tag and attributes, and a frame a link goes to carries the anchor the link names. Vue
+    /// templates keep upstream's plain elements.
+    fn semantics(&mut self, n: &Node) -> (crate::semantics::Semantics, String) {
+        let doc = self.ctx.doc;
+        let sem = if self.lang == CodeLang::Vue {
+            crate::semantics::Semantics::default()
+        } else {
+            let mut sem = crate::semantics::of(doc, n);
+            if self.fluid {
+                // Page code: guess what nothing marked (the h1, landmarks and buttons by name).
+                let h1 = *self.h1.get_or_insert_with(|| crate::semantics::page_h1(doc, self.ctx.root));
+                crate::semantics::infer(n, h1 == Some(n.id), &mut sem);
+            }
+            // No link or button inside another: HTML forbids nested interactive content.
+            if self.interactive && matches!(sem.tag, Some("a" | "button")) {
+                sem.tag = None;
+                sem.href = None;
+            }
+            sem
+        };
+        let targets = self.targets.get_or_insert_with(|| crate::semantics::link_targets(doc));
+        let id_attr = if targets.binary_search_by_key(&n.id.0, |t| t.0).is_ok() {
+            crate::semantics::anchor_for(doc, n.id).map(|a| format!(" id=\"{}\"", a.replace('"', ""))).unwrap_or_default()
+        } else {
+            String::new()
+        };
+        (sem, id_attr)
+    }
+
+    /// What the element's tag needs after the placement, before the layer's own look (local
+    /// fork, #748).
+    fn tag_decls(&self, n: &Node, sem: &crate::semantics::Semantics, decls: &mut String) {
+        let text = matches!(n.kind, NodeKind::Text(_));
+        // A frame without auto layout drawn as an element that is inline by default (a link, a
+        // span inside a button) keeps its box: inline boxes ignore width and height.
+        let inline = !text && n.layout.is_none() && (matches!(sem.tag, Some("a" | "span" | "label")) || (self.phrasing && sem.tag.is_none()));
+        if inline {
+            decls.push_str("display: block;\n");
+        }
+        // Tailwind's preflight already resets these for page code.
+        if !self.fluid {
+            decls.push_str("box-sizing: border-box;\n");
+            decls.push_str(reset_for(sem.tag, text));
+        }
+    }
+
+    /// The open tag's attributes: the root's variant attributes, the layer's anchor and semantics
+    /// (local fork, #748) and a Vue `v-if` guard.
+    fn open_attrs(&mut self, root: bool, id_attr: &str, sem: &crate::semantics::Semantics) -> String {
+        let mut attrs = if root { self.root_attrs.clone() } else { String::new() };
+        attrs.push_str(id_attr);
+        attrs.push_str(&self.sem_attrs(sem));
+        if self.lang == CodeLang::Vue
+            && let Some(guard) = self.v_if.take()
+        {
+            attrs.push_str(&format!(" v-if=\"{guard}\""));
+        }
+        attrs
+    }
+
     fn element(&mut self, n: &Node, parent: Option<&Node>, depth: usize, path: &str) {
         let doc = self.ctx.doc;
         let root = n.id == self.ctx.root;
@@ -227,84 +376,15 @@ impl<'c, 'a> Markup<'c, 'a> {
         let pad = self.pad(depth);
         let attr = if self.lang == CodeLang::React { "className" } else { "class" };
         // How it sits in its parent: in the flex flow, or placed at its position.
-        let mut decls = String::new();
         let in_flow = parent.is_some_and(|p| p.layout.is_some()) && !n.child_layout.absolute;
-        if root {
-            decls.push_str("position: relative;\n");
-        } else if in_flow {
-            let vertical = parent.and_then(|p| p.layout.as_ref()).is_some_and(|l| l.mode == LayoutMode::Vertical);
-            let (main, cross) =
-                if vertical { (n.child_layout.sizing_v, n.child_layout.sizing_h) } else { (n.child_layout.sizing_h, n.child_layout.sizing_v) };
-            if main == Sizing::Fill {
-                decls.push_str("flex: 1 1 0;\n");
-            }
-            if cross == Sizing::Fill {
-                decls.push_str("align-self: stretch;\n");
-            }
-        } else {
-            let c = n.transform.as_coeffs();
-            decls.push_str(&format!("position: absolute;\nleft: {}px;\ntop: {}px;\n", num(c[4]), num(c[5])));
-            let rot = figcraft_geom::rotation_degrees(n.transform);
-            if rot.abs() > 0.01 {
-                decls.push_str(&format!("transform: rotate({}deg);\ntransform-origin: 0 0;\n", num(-rot)));
-            }
-        }
-        // The element semantics (local fork, upstream PR #748): a layer's kind, link or mark
-        // decides its tag and attributes. Vue templates keep upstream's plain elements.
-        let sem = if self.lang == CodeLang::Vue {
-            crate::semantics::Semantics::default()
-        } else {
-            let mut sem = crate::semantics::of(doc, n);
-            if self.fluid {
-                // Page code: guess what nothing marked (the h1, landmarks and buttons by name).
-                let h1 = *self.h1.get_or_insert_with(|| crate::semantics::page_h1(doc, self.ctx.root));
-                crate::semantics::infer(n, h1 == Some(n.id), &mut sem);
-            }
-            // No link or button inside another: HTML forbids nested interactive content.
-            if self.interactive && matches!(sem.tag, Some("a" | "button")) {
-                sem.tag = None;
-                sem.href = None;
-            }
-            sem
-        };
-        let targets = self.targets.get_or_insert_with(|| crate::semantics::link_targets(doc));
-        // A frame a link goes to carries the anchor the link names.
-        let id_attr = if targets.binary_search_by_key(&n.id.0, |t| t.0).is_ok() {
-            crate::semantics::anchor_for(doc, n.id).map(|a| format!(" id=\"{}\"", a.replace('"', ""))).unwrap_or_default()
-        } else {
-            String::new()
-        };
+        let mut decls = placement_decls(n, parent, root, in_flow);
+        let (sem, id_attr) = self.semantics(n);
         // Nested instances are calls (component code), in a wrapper that places them when needed
         // and carries what the instance is on the page (a link around a component, its anchor).
         // Page code inlines instances, except those connected to code (codeConnect.set): their
         // snippet, e.g. a design-system `<Button>`.
-        let connected = self.inline && crate::code_connect::link(doc, n.id, CodeLang::React).is_some();
-        if self.code() && (!self.inline || connected) && !root && matches!(n.kind, NodeKind::Instance { .. }) {
-            let at = depth + usize::from(!decls.is_empty());
-            let run = if self.lang == CodeLang::Leptos { ".run()" } else { "" };
-            let (inner, css) = match self.ctx.param(n, "mainComponent") {
-                Some(p) if self.lang == CodeLang::Vue => (Some(format!("{}<component :is=\"{}\" />\n", self.pad(at), self.ident(p))), String::new()),
-                Some(p) => (Some(format!("{}{{{}{run}}}\n", self.pad(at), self.ident(p))), String::new()),
-                None => self.ctx.call(n, self.lang, at).map_or((None, String::new()), |(code, css)| (Some(code), css)),
-            };
-            self.styles.push_str(&css);
-            if let Some(inner) = inner {
-                // A Vue guard set by `node` rides on the call when there is no wrapper.
-                let guard = if self.lang == CodeLang::Vue { self.v_if.take() } else { None };
-                let host = sem != crate::semantics::Semantics::default() || !id_attr.is_empty();
-                if decls.is_empty() && !host {
-                    self.markup.push_str(&with_v_if(&inner, guard.as_deref()));
-                } else {
-                    let guard = guard.map(|g| format!(" v-if=\"{g}\"")).unwrap_or_default();
-                    let tag = if sem.tag.is_some() { sem.element(false) } else { "div" };
-                    let attrs = format!("{id_attr}{}", self.sem_attrs(&sem));
-                    self.markup.push_str(&format!("{pad}<{tag} {attr}=\"{class}\"{guard}{attrs}>\n{inner}{pad}</{tag}>\n"));
-                    let mut d = String::from(if self.fluid { "" } else { reset_for(sem.tag, false) });
-                    d.push_str(&decls);
-                    self.rule(path, &class, d);
-                }
-                return;
-            }
+        if self.instance_call(n, depth, path, &class, &decls, root, (&sem, &id_attr)) {
+            return;
         }
         let hugs = n.layout.is_some() || matches!(n.kind, NodeKind::Text(_));
         let hug = (hugs && n.child_layout.sizing_h == Sizing::Hug, hugs && n.child_layout.sizing_v == Sizing::Hug);
@@ -317,47 +397,14 @@ impl<'c, 'a> Markup<'c, 'a> {
         if n.layout.is_none() && !n.children.is_empty() && !root && in_flow {
             own.push_str("position: relative;\n");
         }
-        let text = matches!(n.kind, NodeKind::Text(_));
-        // A frame without auto layout drawn as an element that is inline by default (a link, a
-        // span inside a button) keeps its box: inline boxes ignore width and height.
-        let inline = !text && n.layout.is_none() && (matches!(sem.tag, Some("a" | "span" | "label")) || (self.phrasing && sem.tag.is_none()));
-        if inline {
-            decls.push_str("display: block;\n");
-        }
-        // After the placement, before the layer's own look. Tailwind's preflight already resets
-        // these for page code.
-        if !self.fluid {
-            decls.push_str("box-sizing: border-box;\n");
-            decls.push_str(reset_for(sem.tag, text));
-        }
+        self.tag_decls(n, &sem, &mut decls);
         decls.push_str(&own);
         self.rule(path, &class, decls);
-        // The root's variant attributes, a Vue `v-if` guard and the layer's semantics ride on the
-        // open tag.
-        let mut attrs = if root { self.root_attrs.clone() } else { String::new() };
-        attrs.push_str(&id_attr);
-        attrs.push_str(&self.sem_attrs(&sem));
-        if self.lang == CodeLang::Vue
-            && let Some(guard) = self.v_if.take()
-        {
-            attrs.push_str(&format!(" v-if=\"{guard}\""));
-        }
+        let attrs = self.open_attrs(root, &id_attr, &sem);
         let open = |tag: &str| format!("{pad}<{tag} {attr}=\"{class}\"{attrs}>");
         match &n.kind {
             NodeKind::Text(t) => {
-                let body = match (self.ctx.param(n, "characters").filter(|_| self.code()), self.lang) {
-                    (Some(p), CodeLang::Leptos) => format!("{{{}.clone()}}", self.ident(p)),
-                    (Some(p), CodeLang::Vue) => format!("{{{{ {} }}}}", self.ident(p)),
-                    (Some(p), _) => format!("{{{}}}", p.ident),
-                    (None, CodeLang::React) => jsx_text(&t.characters),
-                    // `view!` takes text as string literals and void elements self-closed.
-                    (None, CodeLang::Leptos) => {
-                        t.characters.chars().take(10_000).collect::<String>().lines().map(|l| format!("{l:?}")).collect::<Vec<_>>().join("<br/>")
-                    }
-                    // A Vue template reads `{{ }}` as interpolation, so braces are escaped.
-                    (None, CodeLang::Vue) => html_escape(&t.characters).replace('{', "&#123;").replace('}', "&#125;"),
-                    (None, _) => html_escape(&t.characters),
-                };
+                let body = self.text_body(n, t);
                 // Inside a button or heading only phrasing content: plain text is a span.
                 let tag = if self.phrasing && sem.tag.is_none() { "span" } else { sem.element(true) };
                 self.markup.push_str(&format!("{}{body}</{tag}>\n", open(tag)));

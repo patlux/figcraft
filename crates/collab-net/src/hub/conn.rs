@@ -1,7 +1,11 @@
 use super::hosting::{Open, spawn};
 use super::limits::{PerAddress, ip_key};
 use super::queue::{Blocks, HubIn, InFlight, Line, Out, wide_block};
-use super::*;
+use super::{
+    Arc, AtomicBool, AtomicUsize, Bucket, Bytes, ClientMsg, CloseCode, CloseFrame, Duplex, Duration, ErrorResponse, Instant, IpAddr, Message, Meter,
+    NetLimits, Ordering, Read, Readers, Receiver, RecvTimeoutError, Request, Response, Role, Sender, ServerMsg, SocketAddr, TcpListener, TcpStream,
+    WebSocket, Write, config, io, message, shutdown, sync_channel,
+};
 
 /// How long a closing connection waits for the peer to hang up.
 const LINGER: Duration = Duration::from_secs(2);
@@ -266,7 +270,8 @@ fn serve(mut stream: TcpStream, conn: u64, hub: &Sender<HubIn>, limits: NetLimit
                 | ClientMsg::OpenLibrary(_)
                 | ClientMsg::OpenPlugins(_)
                 | ClientMsg::OpenHosting(_)
-                | ClientMsg::Resolve(_)),
+                | ClientMsg::Resolve(_)
+                | ClientMsg::ResolveTeam(_)),
                 bytes,
             ))) => {
                 // Sessions and the operator may use the last connections; one-shot requests

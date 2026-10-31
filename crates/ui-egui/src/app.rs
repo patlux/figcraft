@@ -2,7 +2,12 @@ use super::clock::{AUTO_SAVE_RETRY_SECS, AUTO_SAVE_SECS, AUTOSAVE_SECS, CJK_CHAN
 use super::open::OPEN_EXTENSIONS;
 use super::services::{DialogFuture, PickFuture, Picked, RepaintWaker, Services};
 use super::state::{LEFT_PANEL, LeftTab, MOBILE_STRIP, MobilePanel, NARROW_WIDTH, PANEL_DEFAULT, RIGHT_PANEL, RightTab, TitleBar, fit_panels};
-use super::*;
+use super::{
+    Arc, Done, FigApp, NodeId, OsStr, Path, PathBuf, PendingAck, PendingDialog, Poll, Session, TaskContext, UiState, Value, Waker, a11y, branch_ui,
+    canvas, cjk, comments, cursors, dev_compare, dialogs, frame_stats, home, home_recents, i18n, icons, import_report, json, layers, live, menus,
+    missing_fonts, online, plugins_ui, present, render_worker, right, selection_spacing, shortcuts, style_picker, tabs, theme, toolbar, ui_scale,
+    updates_ui, variable_ui, versions, widgets, windows,
+};
 
 mod clipboard;
 mod commands;
@@ -192,13 +197,17 @@ impl FigApp {
         // already happened and would otherwise duplicate).
         self.end_input_frame(&ctx);
         // Plugins installed, removed or set up are kept at once: a crash doesn't lose them.
-        // So are the owner tokens of files put online.
-        if std::mem::take(&mut self.session.plugins.unsaved) | std::mem::take(&mut self.session.live.unsaved) {
+        // So are the owner tokens of files put online, and preferences a command keeps at once.
+        if std::mem::take(&mut self.session.plugins.unsaved)
+            | std::mem::take(&mut self.session.live.unsaved)
+            | std::mem::take(&mut self.session.prefs_unsaved)
+        {
             self.services.save_prefs(&self.session.prefs);
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
             self.ui.frame_ms = t0.elapsed().as_secs_f64() * 1000.0;
+            self.frame_stats.timed(self.ui.frame_ms);
         }
     }
 
@@ -216,7 +225,7 @@ impl FigApp {
         // Bind the originating field/file before tabs can switch. Its widget commits only after
         // processing this batch; delivery remains deferred until the following frame.
         let field_save = shortcuts::prepare_field_save(self, &ctx);
-        let swallowed = shortcuts::swallowed_paste(self, &ctx);
+        let paste = shortcuts::paste_events(self, &ctx);
         // A dialog that closed acts first, in the window it was opened from.
         self.poll_dialog(&ctx);
         // Control requests run first so their results reflect this frame.
@@ -276,7 +285,7 @@ impl FigApp {
         let right_open = (self.right_panel_shown(hidden) && !narrow) || mobile == Some(MobilePanel::Right);
         if !hidden && (!narrow || mobile == Some(MobilePanel::Left)) {
             egui::Panel::left("left_rail")
-                .exact_size(56.0)
+                .exact_size(layers::RAIL_WIDTH)
                 .resizable(false)
                 .frame(egui::Frame::NONE.fill(t.panel).stroke(egui::Stroke::new(1.0, t.border)))
                 .show(ui, |ui| {
@@ -312,6 +321,7 @@ impl FigApp {
                     layers::left_panel(self, ui)
                 });
         }
+        self.ui.right_panel_rect = None;
         if right_open {
             if !narrow {
                 edges.push(("right", ui.available_rect_before_wrap().max.x - right_w, right_w, -1.0));
@@ -319,7 +329,9 @@ impl FigApp {
             egui::Panel::right("right_panel")
                 .resizable(false)
                 .exact_size(right_w)
-                .frame(egui::Frame::NONE.fill(t.panel).stroke(egui::Stroke::new(1.0, t.border)))
+                // No stroke: a frame's stroke is part of its margin, which would take 1 pt off
+                // each side of the panel (240 pt by default). The edge is drawn in `right_panel`.
+                .frame(egui::Frame::NONE.fill(t.panel))
                 .show(ui, |ui| {
                     let label = match self.ui.right_tab {
                         RightTab::Design => i18n::tr("Design"),
@@ -367,7 +379,7 @@ impl FigApp {
         branch_ui::keys(self, &ctx);
         live::dialog_keys(self, &ctx);
         dialogs::keys(self, &ctx);
-        shortcuts::handle_input(self, &ctx, typing, swallowed, ime_input, field_save);
+        shortcuts::handle_input(self, &ctx, typing, paste, ime_input, field_save);
         menus::popups(self, &ctx);
         variable_ui::picker(self, &ctx);
         style_picker::show(self, &ctx);

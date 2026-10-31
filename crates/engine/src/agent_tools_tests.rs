@@ -77,7 +77,7 @@ fn duplicate_returns_which_copy_each_layer_became() {
     let r = ex(&mut s, "node.createTree", json!({"tree": card_tree()}));
     let card = id(&r["id"]);
     let label = id(&r["ids"]["Card/Button/Label"]);
-    let d = ex(&mut s, "edit.duplicate", json!({"ids": [card]}));
+    let d = ex(&mut s, "edit.duplicate", json!({"ids": [card], "map": true}));
     let map = d["map"].as_object().unwrap();
     assert_eq!(map.len(), 5, "every layer of the subtree: {map:?}");
     let copy = id(&map[&card.to_string()]);
@@ -97,7 +97,7 @@ fn duplicate_of_a_main_component_maps_to_its_instance_layers() {
     let r = ex(&mut s, "node.createTree", json!({"tree": card_tree()}));
     let label = id(&r["ids"]["Card/Button/Label"]);
     let comp = id(&ex(&mut s, "component.create", json!({"ids": [id(&r["id"])]}))["id"]);
-    let d = ex(&mut s, "edit.duplicate", json!({"ids": [comp]}));
+    let d = ex(&mut s, "edit.duplicate", json!({"ids": [comp], "map": true}));
     let map = d["map"].as_object().unwrap();
     let copy = id(&map[&comp.to_string()]);
     assert_eq!(d["ids"], json!([copy]));

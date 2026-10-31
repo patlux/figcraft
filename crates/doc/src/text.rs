@@ -150,8 +150,12 @@ impl TextCase {
                     } else {
                         out.push(ch);
                         // An apostrophe only continues a word right after a letter or digit.
-                        let opening_apostrophe = matches!(ch, '\'' | '\u{2019}') && !last.is_some_and(char::is_alphanumeric);
-                        start = !is_word_char(ch) || opening_apostrophe;
+                        let opening_apostrophe =
+                            matches!(ch, '\'' | '\u{2019}') && !last.is_some_and(|c| c.is_alphanumeric() || is_combining_mark(c));
+                        // A combining mark attaches to the char before it and never changes word state.
+                        if !is_combining_mark(ch) {
+                            start = !is_word_char(ch) || opening_apostrophe;
+                        }
                     }
                     last = Some(ch);
                 }
@@ -166,9 +170,23 @@ impl TextCase {
     }
 }
 
-/// Letters, digits and apostrophes continue a word (so "don't" stays "Don't").
+/// Letters, digits, combining marks and apostrophes continue a word (so "don't" stays "Don't"
+/// and decomposed accents stay inside their word).
 fn is_word_char(c: char) -> bool {
-    c.is_alphanumeric() || matches!(c, '\'' | '\u{2019}')
+    c.is_alphanumeric() || is_combining_mark(c) || matches!(c, '\'' | '\u{2019}')
+}
+
+/// Combining marks such as the U+0301 accent in decomposed text: non-alphanumeric chars that
+/// extend the grapheme of the char before them.
+fn is_combining_mark(c: char) -> bool {
+    use unicode_segmentation::UnicodeSegmentation;
+    if c.is_ascii() || c.is_alphanumeric() {
+        return false;
+    }
+    let mut buf = [0u8; 8];
+    buf[0] = b'a';
+    let end = 1 + c.encode_utf8(&mut buf[1..]).len();
+    std::str::from_utf8(&buf[..end]).is_ok_and(|s| s.graphemes(true).count() == 1)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -361,6 +379,13 @@ impl TextStyle {
 /// Weight from a style name ("Semi Bold Italic" → 600).
 pub fn style_weight(style: &str) -> u16 {
     let s = style.to_ascii_lowercase().replace([' ', '-'], "");
+    // A weight number ("600", "600 Italic"), as some apps name styles.
+    let digits: String = s.chars().take_while(char::is_ascii_digit).collect();
+    if let Ok(n) = digits.parse::<u16>()
+        && (1..=1000).contains(&n)
+    {
+        return n;
+    }
     let table: [(&str, u16); 10] = [
         ("thin", 100),
         ("extralight", 200),
@@ -445,6 +470,21 @@ pub struct TextData {
     /// data small.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<Box<TextPath>>,
+    /// Where the file this text came from wrapped its lines (an imported `.fig`'s saved layout).
+    /// Layout follows them only while the box width and everything that moves a line break are
+    /// as they were saved, so an edit that could change the wrap drops them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub saved_breaks: Option<Box<SavedBreaks>>,
+}
+
+/// Line breaks a file saved with a text: the chars that start a wrapped line (not those after a
+/// hard break), for the box width and the content ([`TextData::layout_key`]) they were made for.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct SavedBreaks {
+    pub starts: Vec<usize>,
+    pub width: f64,
+    pub for_text: u64,
 }
 
 /// Text on a path: the baseline follows `d`. The text starts at `start` (aligned there by the
@@ -501,6 +541,43 @@ pub fn valid_axis_tag(tag: &str) -> bool {
 impl TextData {
     pub fn new(characters: impl Into<String>) -> Self {
         Self { characters: characters.into(), ..Default::default() }
+    }
+
+    /// A stable hash of what decides where lines break: everything but paints, links, style links,
+    /// decorations, vertical settings and the saved breaks themselves (FNV-1a over the JSON, so it
+    /// stays the same across builds and can be saved).
+    pub fn layout_key(&self) -> u64 {
+        let clear = |s: &mut TextStyle| {
+            (s.fills, s.link, s.style_id, s.decoration, s.decoration_look) = (None, None, None, TextDecoration::None, None);
+        };
+        let mut t = TextData {
+            align_v: TextAlignV::default(),
+            paragraph_spacing: 0.0,
+            list_spacing: 0.0,
+            leading_trim: LeadingTrim::default(),
+            max_lines: 0,
+            saved_breaks: None,
+            ..self.clone()
+        };
+        clear(&mut t.style);
+        t.runs.iter_mut().for_each(|r| clear(&mut r.style));
+        t.normalize();
+        serde_json::to_vec(&t).unwrap_or_default().iter().fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ u64::from(*b)).wrapping_mul(0x0100_0000_01b3))
+    }
+
+    /// Keep `starts` (chars that start a wrapped line) as this text's saved line breaks in a box
+    /// `width` wide.
+    pub fn save_breaks(&mut self, starts: Vec<usize>, width: f64) {
+        self.saved_breaks = Some(Box::new(SavedBreaks { starts, width, for_text: self.layout_key() }));
+    }
+
+    /// The saved line starts (empty: no wrapped line) while they still hold: the same box width and
+    /// layout content, and starts increasing inside the text.
+    pub fn saved_breaks_for(&self, width: f64) -> Option<&[usize]> {
+        let b = self.saved_breaks.as_deref()?;
+        let inside = b.starts.first().is_none_or(|s| *s > 0) && b.starts.last().is_none_or(|s| *s < self.char_count());
+        let same_box = (b.width - width).abs() <= 1e-6 * width.abs().max(1.0);
+        (inside && same_box && b.starts.is_sorted_by(|a, b| a < b) && b.for_text == self.layout_key()).then_some(b.starts.as_slice())
     }
 
     /// How far text on a path paints past its path's box (glyphs stand on the path, lines after
@@ -916,5 +993,13 @@ mod title_case_tests {
         assert_eq!(TextCase::Title.apply_between("hello", None, Some('\'')), "Hello");
         assert_eq!(TextCase::Title.apply_between("t", Some('n'), Some('\'')), "t");
         assert_eq!(TextCase::Title.apply_between("t", Some(' '), Some('\u{2019}')), "T");
+    }
+
+    #[test]
+    fn title_case_combining_marks_do_not_break_words() {
+        assert_eq!(TextCase::Title.apply("re\u{301}sume\u{301}"), "Re\u{301}sume\u{301}");
+        assert_eq!(TextCase::Title.apply("re\u{301}sume\u{301} bon"), "Re\u{301}sume\u{301} Bon");
+        assert_eq!(TextCase::Title.apply("a \u{301}b"), "A \u{301}B");
+        assert_eq!(TextCase::Title.apply("cafe\u{301}'s"), "Cafe\u{301}'s");
     }
 }
