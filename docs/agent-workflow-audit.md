@@ -1,6 +1,6 @@
 # Local agent workflow audit
 
-Date: 2026-10-31. Scope: the slim local fork, merged with upstream `e04c5d2` (0.13.1 and its fixes) and with carried upstream PRs, and the paired Python bridge and agent skill.
+Date: 2026-10-31. Scope: the slim local fork, merged with upstream `5fc2840` (0.14.0) and with carried upstream PRs, and the paired Python bridge and agent skill.
 The fork's manifest, sync script and runbook are in `/Users/patwoz/dev/Personal/infra/nix/hosts/darwin/mbpromax/figcraft/` (`fork-manifest.toml`, `sync-upstream.sh`, `SYNC.md`).
 This audit does not claim installed synchronization or Figma parity.
 
@@ -65,7 +65,8 @@ it needs a token shared by the LaunchAgent, the bridge and the CLI.
 
 ## Verification summary
 
-- Upstream `e04c5d2` (2026-10-31): **5,032 workspace tests passed, zero failed, twelve ignored**, serial test execution with Rust 1.99.1.
+- Upstream `5fc2840` (2026-10-31): engine, format and MCP suites **2,555 passed, zero failed, five ignored** (serial, Rust 1.99.1); the full workspace suite and clippy run in CI.
+- Upstream `e04c5d2` (2026-10-31): 5,032 workspace tests passed, zero failed, twelve ignored.
 - Upstream `0abbe44` (2026-10-31): 5,023 workspace tests passed, zero failed, twelve ignored.
 - Upstream `1c5c9e0` (2026-10-31): 4,997 workspace tests passed, zero failed, twelve ignored.
   Formatting, workspace clippy with warnings denied, layering, assets, parity and the WASM check pass.
@@ -108,6 +109,8 @@ inner shadows honor their blend mode on shapes, frames and groups; SVG vector an
 still use Normal. Import/export: tracked `.figcraft` saves refuse external changes (byte baselines,
 participating-writer locks; explicit refresh, no file watching). Ranked estimates are unchanged by
 the fork.
+
+- **2026-10-31** · Upstream 0.14.0 (M0.9, local fork): merged `5fc2840` over `faabe27`, 22 upstream commits and no conflicts. Upstream brings interface-size (Cmd/Ctrl+Shift+Alt+=/-/0) and one-degree rotation (Cmd/Ctrl+Alt+arrows) shortcuts, Ctrl+1 for the layers panel on Windows and Linux, Hide UI in the presenter, Delete that hides a layer inside an instance instead of refusing, text that keeps a max height or a number of lines, bulleted and numbered lists (typing `1)` too), links underlined by default, Remove all auto layout for a frame and its nested frames, and SVG/.fig fixes for whole ellipses drawn backwards, routed connector line styles, stretched images and spread shadows. It also adds a Flatpak OCI image build and release-workflow permissions. The fast path ran again in **~22 minutes** (merge and push <1 min, engine/format/MCP suites 9m36s, release build with artifacts 7m51s, activation 4m21s); the full workspace suite and clippy are left to CI on the push. One environment note: `sync-upstream.sh` needs a `python3` with `tomllib`, and a shell without mise's Python on `PATH` has only macOS's 3.9 — prefix the call with the mise Python's bin directory. Installed as `faabe27` (0.14.0); Pi sessions need a `/reload`.
 
 - **2026-10-31** · Upstream 0.13.1 fixes (M0.9, local fork): merged `e04c5d2` over `3461397`, eight upstream fixes and no conflicts. Unique custom properties per variable in CSS export, paint opacity on gradient stops, escaped font-family strings, finite large numbers in number fields and code export, relative line-height and letter-spacing edits that add to the current value, `comment.parse_link` rejecting `+`, and `crates/text` on craft-font-catalog for Unix. The first run with the documented fast path took **~23 minutes** end to end (merge and push 1 min, tests 14 min incremental, release build and artifacts 6 min, activation 1 min) instead of ~80: local clippy skipped (the fork's CI runs it), `MBX_REMOTE_MODE=read-only` for the gate run, and the release script's targeted `nix build` of both pins. That check needed one fix: the package files are `callPackage` functions, not flakes, so it now builds them with the infra flake's locked nixpkgs the way `official_package` does. Workspace 5,032 passed, zero failed, twelve ignored. Installed as `3461397`; Pi sessions need a `/reload`.
 
