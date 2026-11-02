@@ -1,6 +1,6 @@
 # Local agent workflow audit
 
-Date: 2026-10-31. Scope: the slim local fork, merged with upstream `5fc2840` (0.14.0) and with carried upstream PRs, and the paired Python bridge and agent skill.
+Date: 2026-11-02. Scope: the slim local fork, merged with upstream `5fc2840` (0.14.0) and with carried upstream PRs, the paired Python bridge and agent skill, and the local sync pipeline.
 The fork's manifest, sync script and runbook are in `/Users/patwoz/dev/Personal/infra/nix/hosts/darwin/mbpromax/figcraft/` (`fork-manifest.toml`, `sync-upstream.sh`, `SYNC.md`).
 This audit does not claim installed synchronization or Figma parity.
 
@@ -98,6 +98,8 @@ it needs a token shared by the LaunchAgent, the bridge and the CLI.
 
 The native example uses `NoServices` and direct Engine commands, with no control listener or user preferences.
 It is not an end-to-end test of Pi, the bridge, the packaged CLI and the installed app together.
+
+- **2026-11-02** · Sync pipeline (M0.9, local fork): the hand-run series is one resumable run, `pipeline.sh` (infra `nix/hosts/darwin/mbpromax/figcraft/`), with a JSON record per candidate under `infra/.local/state/figcraft-sync/<candidate>/`. `preflight` checks python (tomllib), Xcode/SDK, Rust, fonts, disk and a clean checkout before any long step; `candidate` freezes the commit and its inputs (lockfile, `rustc`, SDK, embedded fonts, flags) and `build.sh`/`assemble.sh` refuse a checkout that is not that commit, so an artifact cannot be labelled with another commit; `build` runs the test and release lanes, assembles, signs, verifies the seal, the bundle's own commit and Apple-only linkage, and records hashes and lane timings; `promote` preseed, writes both pins from the record and builds both with the infra flake's locked nixpkgs; `activate --yes` quits the app through its own quit path, switches home, reopens and verifies commit, version, CLI, port and windows; `ci --wait` binds the CI run to the exact candidate. A phase that succeeded for the same candidate and inputs is reused, a second run is refused while one holds the lock. `sync-upstream.sh check` previews conflicts with `git merge-tree` instead of a probe merge that mutated the tree. Measured on `ac731f9b`: preflight 9 s, candidate <1 s, build 843 s (tests lane 832.6 s with 418 crates compiled and the full suite; the release lane was warm at 1 s after a 681 s cold build in a failed attempt); a bounded probe showed Cargo serialises the two lanes on its build-directory lock (`Blocking waiting for file lock` in both logs), so the lanes do not overlap while compiling and the record keeps `lock_wait`. The earlier savings stand — targeted `nix build` instead of `make nix-check` (5–7 min), no local clippy (CI runs `cargo xtask ci`), `MBX_REMOTE_MODE=read-only` forwarded into `build.sh`'s empty environment (2–6 min of retries) — while a cold serial-versus-parallel comparison is still unmeasured. The contract has 22 fixture cases in `pipeline-test.sh` (lane failure blocks promotion, stale SHA and changed inputs refuse reuse, a concurrent run is refused, retry reuses only proven phases, both pins stay together, preflight fails early) and runs in `make nix-check`. `ac731f9b` was built but not promoted: the installed app stays `faabe27` (0.14.0).
 
 ## Fork progress log
 
