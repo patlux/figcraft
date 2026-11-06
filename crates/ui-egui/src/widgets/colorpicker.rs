@@ -1108,7 +1108,11 @@ pub fn show(app: &mut FigApp, ctx: &egui::Context) {
     // Sampling a colour from the canvas — the eyedropper this picker's own button started, or the
     // colour it just sampled — is the press, not a press outside: neither may close the picker.
     let picking = app.session.tool.pick_only || app.session.tool.picked.is_some();
-    pop = pop.close_on_outside(!picking && !retargeted);
+    // Nor may a press on the open gradient's handles or stops on the canvas: they are this picker's
+    // controls, and the canvas took the press before the picker drew (#1852). #618: nor the press
+    // that retargeted the picker to another image layer.
+    let own = picking || crate::handles::gradient_dragging(ctx);
+    pop = pop.close_on_outside(!own && !retargeted);
     // Only the opening control is held out: any other sidebar or canvas press dismisses it.
     let mut held: Vec<Rect> = app.ui.picker_button.into_iter().collect();
     held.extend(crate::variable_ui::picker_rect(ctx));
