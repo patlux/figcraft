@@ -199,6 +199,14 @@ fn finish(app: &mut FigApp) {
     finish_with(app, true);
 }
 
+/// The interactions the picker owns and commits when it finishes: its colour edits and the drags of
+/// the open gradient's handles and stops on the canvas, so that Escape ends such a drag under the
+/// held button (#1852). Any other one, the "Edit text" gesture of a text being edited say, stays
+/// open for its owner (#618).
+fn picker_interaction(label: &str) -> bool {
+    matches!(label, "Color" | "Edit gradient" | "Add gradient stop")
+}
+
 /// Finish the picker's edit. `record`: the colour it ends on is a choice for the recent colours
 /// (not when the picker was only closed because its layers went away or changed).
 fn finish_with(app: &mut FigApp, record: bool) {
@@ -207,7 +215,7 @@ fn finish_with(app: &mut FigApp, record: bool) {
         app.ui.picker = Some(PickerTarget::PluginField { plugin, control, pending: None });
     }
     // Any open interaction counts for the recent colours: editing text holds an "Edit text" one, and
-    // the colour a drag ends on is still a choice. Only a colour interaction is committed here.
+    // the colour a drag ends on is still a choice. Only the picker's own interaction is committed here.
     let label = app.session.ds().ok().and_then(|d| d.interaction.as_ref().map(|interaction| interaction.label.clone()));
     if let Some(label) = label {
         if record
@@ -217,7 +225,7 @@ fn finish_with(app: &mut FigApp, record: bool) {
         {
             remember_recent(app, c);
         }
-        if label == "Color" {
+        if picker_interaction(&label) {
             let _ = app.session.commit_interaction();
         }
     }
@@ -229,7 +237,7 @@ fn finish_document(app: &mut FigApp, uid: u64) {
         crate::plugins_ui::set_field(app, &plugin, &control, &hex);
     }
     let Some(index) = app.session.docs.iter().position(|doc| doc.uid == uid) else { return };
-    if !app.session.docs[index].interaction.as_ref().is_some_and(|interaction| interaction.label == "Color") {
+    if !app.session.docs[index].interaction.as_ref().is_some_and(|interaction| picker_interaction(&interaction.label)) {
         return;
     }
     let active = app.session.active;
