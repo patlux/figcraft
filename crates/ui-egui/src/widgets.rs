@@ -279,6 +279,27 @@ fn cancel_retargeted_field_save(ui: &mut Ui, id: Id) {
     ui.memory_mut(|m| m.surrender_focus(editor));
 }
 
+/// Fork (#256): whether a drag on number field `id`'s value scrubs it. One that sets off sideways,
+/// and not from the variable button (`on_bind`), does; one that sets off up or down scrolls the
+/// panel instead (the field holds the drag). `taken`: the value is being typed, or an Alt scrub
+/// (upstream's) has the drag already, so this one neither scrubs nor scrolls.
+fn value_drag_scrubs(ui: &Ui, id: Id, field: &Response, taken: bool, on_bind: &dyn Fn(Option<egui::Pos2>) -> bool) -> bool {
+    let flag = id.with("value_scrub");
+    if field.drag_started() {
+        let (from, at) = ui.input(|i| (i.pointer.press_origin(), i.pointer.hover_pos()));
+        let sideways = from.zip(at).is_some_and(|(f, a)| (a.x - f.x).abs() >= (a.y - f.y).abs());
+        ui.data_mut(|d| d.insert_temp(flag, !taken && sideways && !on_bind(from)));
+    }
+    if taken {
+        return false;
+    }
+    let scrubs = (field.dragged() || field.drag_stopped()) && ui.data(|d| d.get_temp(flag)).unwrap_or(false);
+    if field.dragged() && !scrubs {
+        ui.scroll_with_delta(vec2(0.0, ui.input(|i| i.pointer.delta().y)));
+    }
+    scrubs
+}
+
 /// Implement the shared number field: label/icon lead, scrubbing, keyboard stepping and
 /// typing, select-all when a click starts editing, bindable values and deferred-save
 /// cancellation; returns an edit and/or bind event.
@@ -331,19 +352,7 @@ fn number_field_impl(
     // The variable button sits on the value's right end (bindable fields): it is clicked, not dragged.
     let bind_rect = Rect::from_center_size(pos2(rect.max.x - 11.0, rect.center().y), vec2(18.0, 18.0));
     let on_bind = |p: Option<egui::Pos2>| binding.is_some() && p.is_some_and(|p| bind_rect.contains(p));
-    // A drag on the value scrubs too when it sets off sideways and not from the variable button; one
-    // that sets off up or down scrolls the panel instead (the field holds the drag).
-    let value_scrub_id = id.with("value_scrub");
-    if field_resp.drag_started() {
-        let (from, at) = ui.input(|i| (i.pointer.press_origin(), i.pointer.hover_pos()));
-        let sideways = from.zip(at).is_some_and(|(f, a)| (a.x - f.x).abs() >= (a.y - f.y).abs());
-        ui.data_mut(|d| d.insert_temp(value_scrub_id, editing.is_none() && !alt_scrub && sideways && !on_bind(from)));
-    }
-    let value_drag = field_resp.dragged() || field_resp.drag_stopped();
-    let value_scrubs = value_drag && editing.is_none() && !alt_scrub && ui.data(|d| d.get_temp(value_scrub_id)).unwrap_or(false);
-    if field_resp.dragged() && editing.is_none() && !value_scrubs && !alt_scrub {
-        ui.scroll_with_delta(vec2(0.0, ui.input(|i| i.pointer.delta().y)));
-    }
+    let value_scrubs = value_drag_scrubs(ui, id, &field_resp, editing.is_some() || alt_scrub, &on_bind);
     let hovered = field_resp.hovered() || lead_resp.hovered() || editing.is_some();
     ui.painter().rect_filled(rect, CornerRadius::same(5), t.field);
     if editing.is_some() {
