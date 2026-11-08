@@ -26,6 +26,8 @@ mod args;
 mod control_server;
 mod gamepad;
 mod graphics;
+// Fork: a copy that Nix installed leaves its updates to Nix.
+mod nix_managed;
 mod recovery;
 mod services;
 mod startup;
@@ -229,7 +231,7 @@ fn main() -> eframe::Result {
     // open (no frame then).
     figcraft_ui_egui::i18n::set(&session.prefs.language, figcraft_ui_egui::Services::system_language(&svc).as_deref());
     let mut fig = FigApp::new(session, Box::new(svc));
-    fig.set_startup_update_check(true);
+    fig.set_startup_update_check(nix_managed::startup_update_check());
     fig.automation_roots = roots;
     fig.ui.home = false;
     // Files named on the command line are the user's too: their missing fonts are listed.
