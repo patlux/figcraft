@@ -1365,10 +1365,12 @@ fn alt_held_over_a_field_scrubs_it() {
     assert_eq!(geom(&u, a).0, 35.0, "a step a point: X from 10");
     assert_eq!(undo_steps(&u), steps + 1, "one undo step for the whole scrub");
     assert_eq!(field(&mut u, "X").1, "35", "the field shows it and isn't editing");
+    // Fork (#256, field_tests/value_drag.rs): without Alt, a drag on the value that sets off
+    // sideways scrubs it as well. Upstream: "without Alt the field doesn't scrub".
     let (at, _) = field(&mut u, "X");
     drag(&mut u, at, 25.0, Modifiers::NONE);
-    assert_eq!(geom(&u, a).0, 35.0, "without Alt the field doesn't scrub");
-    assert_eq!(undo_steps(&u), steps + 1);
+    assert_eq!(geom(&u, a).0, 60.0, "fork: without Alt a sideways drag on the value scrubs too");
+    assert_eq!(undo_steps(&u), steps + 2);
     // Alt let go before the button still ends the scrub with its undo step.
     let (at, _) = field(&mut u, "X");
     let press = |pressed: bool, m: Modifiers, p: Pos2| Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed, modifiers: m };
@@ -1380,19 +1382,19 @@ fn alt_held_over_a_field_scrubs_it() {
     let to = pos2(at.x + 20.0, at.y);
     u.frame_with(vec![Event::PointerMoved(to), press(false, Modifiers::NONE, to)], Modifiers::NONE);
     u.frame(vec![]);
-    assert_eq!(geom(&u, a).0, 55.0, "twenty more");
-    assert_eq!(undo_steps(&u), steps + 2, "committed when the button went up, without Alt");
-    // Without Alt the field doesn't take the drag at all (a touch swipe over it is the panel's to
-    // scroll): the press is a click of the field's, not a drag.
+    assert_eq!(geom(&u, a).0, 80.0, "twenty more");
+    assert_eq!(undo_steps(&u), steps + 3, "committed when the button went up, without Alt");
+    // Fork: without Alt the field takes the drag too (a drag that sets off up or down scrolls the
+    // panel, field_tests/value_drag.rs). Upstream: the press is a click of the field's, not a drag.
     let (at, _) = field(&mut u, "X");
     let field_id = Id::unique("pos_x").with("field");
     u.frame_with(vec![Event::PointerMoved(at)], Modifiers::NONE);
     u.frame_with(vec![press(true, Modifiers::NONE, at)], Modifiers::NONE);
     u.frame_with(vec![Event::PointerMoved(pos2(at.x + 10.0, at.y))], Modifiers::NONE);
-    assert!(!u.ctx.is_being_dragged(field_id), "a plain press on the field isn't a drag of the field's");
+    assert!(u.ctx.is_being_dragged(field_id), "fork: a plain press on the value is a drag of the field's");
     u.frame_with(vec![Event::PointerMoved(pos2(at.x + 10.0, at.y)), press(false, Modifiers::NONE, pos2(at.x + 10.0, at.y))], Modifiers::NONE);
     u.frame(vec![]);
-    assert_eq!(geom(&u, a).0, 55.0, "nothing scrubbed");
+    assert_eq!(geom(&u, a).0, 90.0, "fork: ten more, scrubbed sideways without Alt");
     // With Alt held over it, the field does take the drag.
     let (at, _) = field(&mut u, "X");
     u.frame_with(vec![Event::PointerMoved(at)], alt);
@@ -1401,5 +1403,8 @@ fn alt_held_over_a_field_scrubs_it() {
     assert!(u.ctx.is_being_dragged(field_id), "with Alt the drag is the field's");
     u.frame_with(vec![Event::PointerMoved(pos2(at.x + 10.0, at.y)), press(false, alt, pos2(at.x + 10.0, at.y))], alt);
     u.frame(vec![]);
-    assert_eq!(geom(&u, a).0, 65.0, "ten more");
+    assert_eq!(geom(&u, a).0, 100.0, "ten more");
 }
+
+// Fork (#256, upstream PR #285 closed): dragging a value sideways scrubs it.
+mod value_drag;
